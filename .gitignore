@@ -1,0 +1,13 @@
+# 環境變數（含真實密碼，絕不提交）
+.env
+
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store

@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/wbsflow
+    username: wbsflow
+    password: ${POSTGRES_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: always
+  thymeleaf:
+    cache: false
+server:
+  port: 8080
+logging:
+  level:
+    com.wbsflow: INFO
