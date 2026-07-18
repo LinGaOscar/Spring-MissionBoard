@@ -1,0 +1,55 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f6fa; color: #2d3436; }
+.navbar { display: flex; justify-content: space-between; align-items: center; padding: 0 1.5rem; height: 56px; background: #2d3436; color: #fff; }
+.navbar a { color: #fff; text-decoration: none; font-weight: 600; font-size: 1.1rem; }
+.navbar-user { display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
+.btn-link { background: none; border: none; color: #fff; cursor: pointer; font-size: 0.9rem; text-decoration: underline; }
+.layout { display: flex; min-height: calc(100vh - 56px - 48px); }
+.sidebar { width: 220px; background: #fff; border-right: 1px solid #dfe6e9; padding: 1rem 0; flex-shrink: 0; }
+.sidebar ul { list-style: none; }
+.sidebar ul li a { display: block; padding: 0.65rem 1.5rem; color: #2d3436; text-decoration: none; font-size: 0.9rem; }
+.sidebar ul li a:hover { background: #f5f6fa; color: #0984e3; }
+.sidebar-group-label { padding: 0.6rem 1.5rem 0.3rem; font-size: 0.72rem; font-weight: 700; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.5rem; }
+.main-content { flex: 1; padding: 2rem; }
+.footer { height: 48px; background: #dfe6e9; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; color: #636e72; }
+.login-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.login-box { background: #fff; padding: 2.5rem; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 380px; }
+.login-box h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.4rem; }
+.form-group { margin-bottom: 1rem; }
+.form-group label { display: block; margin-bottom: 0.4rem; font-size: 0.9rem; font-weight: 500; }
+.form-group input, .form-group select { width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #b2bec3; border-radius: 4px; font-size: 0.95rem; }
+.form-group input:focus, .form-group select:focus { outline: none; border-color: #0984e3; }
+.btn { padding: 0.6rem 1.2rem; border: 1px solid #b2bec3; border-radius: 4px; cursor: pointer; font-size: 0.95rem; background: #fff; }
+.btn-primary { background: #0984e3; color: #fff; border-color: #0984e3; }
+.btn-primary:hover { background: #0773c5; }
+.btn-block { width: 100%; margin-top: 0.5rem; }
+.sidebar ul li a.active { background: #e8f4fd; color: #0984e3; font-weight: 600; border-left: 3px solid #0984e3; padding-left: calc(1.5rem - 3px); }
+.btn-sm { padding: 0.3rem 0.6rem; font-size: 0.8rem; margin-right: 0.25rem; }
+.btn-danger { border-color: #e17055; color: #e17055; }
+.btn-danger:hover { background: #e17055; color: #fff; }
+.alert { padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem; }
+.alert-error { background: #ffe0e0; color: #c0392b; }
+.alert-info { background: #e0f0ff; color: #2980b9; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.data-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 0.9rem; }
+.data-table th { background: #f8f9fa; font-weight: 600; color: #636e72; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal { background: #fff; border-radius: 8px; padding: 2rem; width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
+.modal h3 { margin-bottom: 1.5rem; font-size: 1.1rem; }
+.modal-actions { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 1rem; }
+.project-card { background:#fff; border-radius:8px; padding:1.25rem 1.5rem; cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,0.08); border:1px solid #f0f0f0; transition:box-shadow 0.15s; }
+.project-card:hover { box-shadow:0 4px 16px rgba(0,0,0,0.12); }
+.project-card-name { font-size:1.05rem; font-weight:600; margin-bottom:0.5rem; }
+.project-card-meta { font-size:0.85rem; color:#636e72; }
+.presence-bar { display:flex; gap:6px; align-items:center; }
+.presence-avatar { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:0.85rem; cursor:default; }
+.cursor-indicators { display:flex; gap:3px; margin-left:4px; }
+.cursor-dot { width:10px; height:10px; border-radius:50%; display:inline-block; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,0.2); }
+/* 匯出下拉選單（純 CSS hover） */
+.export-dropdown { position:relative; display:inline-block; }
+.export-dropdown .dropdown-menu { display:none; position:absolute; right:0; top:calc(100% + 2px); background:#fff; border:1px solid #dfe6e9; border-radius:4px; box-shadow:0 4px 12px rgba(0,0,0,0.12); z-index:200; min-width:100px; }
+.export-dropdown:hover .dropdown-menu { display:block; }
+.dropdown-item { display:block; width:100%; padding:0.45rem 1rem; text-align:left; background:none; border:none; cursor:pointer; font-size:0.85rem; color:#2d3436; }
+.dropdown-item:hover { background:#f5f6fa; }

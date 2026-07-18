@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+<header th:fragment="header">
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <a th:href="@{/home}">WBS 管理系統</a>
+    </div>
+    <div class="navbar-user" sec:authorize="isAuthenticated()">
+      <span sec:authentication="principal.username"></span>
+      <form th:action="@{/auth/logout}" method="post" style="display:inline">
+        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+        <button type="submit" class="btn-link">登出</button>
+      </form>
+    </div>
+  </nav>
+</header>
+</body>
+</html>

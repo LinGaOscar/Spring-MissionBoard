@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<footer th:fragment="footer" class="footer">
+  <p>WBS 管理系統 &copy; 2026</p>
+  <script>
+    (function() {
+      const path = window.location.pathname;
+      document.querySelectorAll('.sidebar a').forEach(function(a) {
+        const href = a.getAttribute('href');
+        if (href && (path === href || path.startsWith(href + '/'))) {
+          a.classList.add('active');
+        }
+      });
+    })();
+  </script>
+</footer>
+</body>
+</html>
