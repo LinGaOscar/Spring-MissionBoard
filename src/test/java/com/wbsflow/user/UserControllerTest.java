@@ -71,8 +71,9 @@ class UserControllerTest {
     }
 
     @Test
-    void unauthenticatedRequestRedirectsToLogin() throws Exception {
+    void unauthenticatedRequestReturnsUnauthorizedJson() throws Exception {
         mockMvc.perform(get("/api/users/me"))
-            .andExpect(status().is3xxRedirection());
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success").value(false));
     }
 }
