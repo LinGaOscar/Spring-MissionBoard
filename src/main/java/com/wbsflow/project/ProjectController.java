@@ -17,6 +17,7 @@ import java.util.List;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
 
     @GetMapping("/projects")
@@ -64,6 +65,53 @@ public class ProjectController {
     @ResponseBody
     public ApiResponse<Void> unarchive(@PathVariable Long id, Principal principal) {
         projectService.unarchiveProject(id, currentUser(principal));
+        return ApiResponse.ok(null);
+    }
+
+    @GetMapping("/api/projects/{id}/members")
+    @ResponseBody
+    public ApiResponse<List<ProjectDto.MemberResponse>> members(@PathVariable Long id, Principal principal) {
+        User user = currentUser(principal);
+        if (!projectService.canRead(id, user)) {
+            throw new SecurityException("無存取權限");
+        }
+        List<ProjectDto.MemberResponse> result = projectMemberRepository.findByIdProjectId(id)
+            .stream().map(ProjectDto.MemberResponse::from).toList();
+        return ApiResponse.ok(result);
+    }
+
+    @PostMapping("/api/projects/{id}/members")
+    @ResponseBody
+    public ApiResponse<Void> addMember(@PathVariable Long id,
+            @RequestBody ProjectDto.MemberRequest req, Principal principal) {
+        User user = currentUser(principal);
+        if (!projectService.canWrite(id, user)) {
+            throw new SecurityException("無權限管理此專案成員");
+        }
+        projectService.addMember(id, req.userId(), user);
+        return ApiResponse.ok(null);
+    }
+
+    @DeleteMapping("/api/projects/{id}/members/{userId}")
+    @ResponseBody
+    public ApiResponse<Void> removeMember(@PathVariable Long id, @PathVariable Long userId, Principal principal) {
+        User user = currentUser(principal);
+        if (!projectService.canWrite(id, user)) {
+            throw new SecurityException("無權限管理此專案成員");
+        }
+        projectService.removeMember(id, userId);
+        return ApiResponse.ok(null);
+    }
+
+    @PutMapping("/api/projects/{id}/owner")
+    @ResponseBody
+    public ApiResponse<Void> changeOwner(@PathVariable Long id,
+            @RequestBody ProjectDto.MemberRequest req, Principal principal) {
+        User user = currentUser(principal);
+        if (!projectService.canWrite(id, user)) {
+            throw new SecurityException("無權限變更負責人");
+        }
+        projectService.changeOwner(id, req.userId(), user);
         return ApiResponse.ok(null);
     }
 

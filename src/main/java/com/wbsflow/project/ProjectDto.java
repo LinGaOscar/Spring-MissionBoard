@@ -22,4 +22,17 @@ public class ProjectDto {
 
     public record CreateRequest(@NotBlank String name, String description) {
     }
+
+    public record MemberResponse(Long userId, String username, String displayName,
+                                  String role, LocalDateTime joinedAt) {
+        public static MemberResponse from(ProjectMember pm) {
+            return new MemberResponse(
+                pm.getUser().getId(), pm.getUser().getUsername(), pm.getUser().getDisplayName(),
+                pm.getUser().getRole().name(), pm.getJoinedAt()
+            );
+        }
+    }
+
+    public record MemberRequest(Long userId) {
+    }
 }

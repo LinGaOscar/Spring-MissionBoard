@@ -4,6 +4,8 @@ import com.wbsflow.department.Department;
 import com.wbsflow.department.DepartmentRepository;
 import com.wbsflow.user.User;
 import com.wbsflow.user.UserRepository;
+import com.wbsflow.wbs.WbsNode;
+import com.wbsflow.wbs.WbsNodeRepository;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +48,9 @@ class ProjectControllerTest {
     private ProjectMemberRepository projectMemberRepository;
 
     @Autowired
+    private WbsNodeRepository wbsNodeRepository;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     private Department sectionA;
@@ -71,6 +76,9 @@ class ProjectControllerTest {
 
         ProjectMember pm = new ProjectMember();
         pm.setId(new ProjectMemberId(projectA.getId(), leaderA.getId()));
+        // user 欄位為 insertable=false/updatable=false，僅供讀取；同一交易內後續查詢會命中
+        // Hibernate 一級快取回傳同一物件，若不在此顯式設定，getUser() 會一直是 null
+        pm.setUser(leaderA);
         pm.setAssignedBy(leaderA);
         projectMemberRepository.save(pm);
     }
@@ -174,6 +182,88 @@ class ProjectControllerTest {
         Cookie session = loginAs("director1");
 
         mockMvc.perform(patch("/api/projects/" + projectA.getId() + "/archive").cookie(session).with(csrf()))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void addMemberBySectionChiefIsIdempotent() throws Exception {
+        User memberX = saveUser("memberX", User.Role.PROJECT_MEMBER, sectionA);
+        Cookie session = loginAs("chiefA");
+
+        mockMvc.perform(post("/api/projects/" + projectA.getId() + "/members").cookie(session).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userId\":" + memberX.getId() + "}"))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/projects/" + projectA.getId() + "/members").cookie(session).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userId\":" + memberX.getId() + "}"))
+            .andExpect(status().isOk());
+
+        assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(projectA.getId(), memberX.getId())).isTrue();
+    }
+
+    @Test
+    void getMembersListsExistingMembers() throws Exception {
+        Cookie session = loginAs("chiefA");
+
+        mockMvc.perform(get("/api/projects/" + projectA.getId() + "/members").cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.length()").value(1))
+            .andExpect(jsonPath("$.data[0].username").value("leaderA"));
+    }
+
+    @Test
+    void removeMemberClearsNodeAssignee() throws Exception {
+        User memberX = saveUser("memberX", User.Role.PROJECT_MEMBER, sectionA);
+        ProjectMember pm = new ProjectMember();
+        pm.setId(new ProjectMemberId(projectA.getId(), memberX.getId()));
+        pm.setAssignedBy(leaderA);
+        projectMemberRepository.save(pm);
+
+        WbsNode l1 = new WbsNode();
+        l1.setProject(projectA);
+        l1.setLevel((short) 1);
+        l1.setTitle("SIT");
+        WbsNode savedL1 = wbsNodeRepository.save(l1);
+        WbsNode l3 = new WbsNode();
+        l3.setProject(projectA);
+        l3.setParent(savedL1);
+        l3.setLevel((short) 3);
+        l3.setTitle("細項");
+        l3.setAssignee(memberX);
+        WbsNode savedL3 = wbsNodeRepository.save(l3);
+
+        Cookie session = loginAs("chiefA");
+        mockMvc.perform(delete("/api/projects/" + projectA.getId() + "/members/" + memberX.getId())
+                .cookie(session).with(csrf()))
+            .andExpect(status().isOk());
+
+        assertThat(wbsNodeRepository.findById(savedL3.getId()).orElseThrow().getAssignee()).isNull();
+    }
+
+    @Test
+    void changeOwnerAutoAddsNewOwnerAsMember() throws Exception {
+        User memberX = saveUser("memberX", User.Role.PROJECT_MEMBER, sectionA);
+        Cookie session = loginAs("chiefA");
+
+        mockMvc.perform(put("/api/projects/" + projectA.getId() + "/owner").cookie(session).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userId\":" + memberX.getId() + "}"))
+            .andExpect(status().isOk());
+
+        Project updated = projectRepository.findById(projectA.getId()).orElseThrow();
+        assertThat(updated.getOwner().getUsername()).isEqualTo("memberX");
+        assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(projectA.getId(), memberX.getId())).isTrue();
+    }
+
+    @Test
+    void memberManagementDeniedForOutsideSectionChief() throws Exception {
+        User memberX = saveUser("memberX", User.Role.PROJECT_MEMBER, sectionA);
+        Cookie session = loginAs("chiefB");
+
+        mockMvc.perform(post("/api/projects/" + projectA.getId() + "/members").cookie(session).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userId\":" + memberX.getId() + "}"))
             .andExpect(status().isForbidden());
     }
 }
