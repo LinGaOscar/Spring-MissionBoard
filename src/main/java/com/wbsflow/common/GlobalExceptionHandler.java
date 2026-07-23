@@ -4,6 +4,7 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
 // 統一將 domain exception 轉換成 HTTP 狀態碼，前端只需判斷 success 旗標，不需要處理 500
@@ -36,5 +37,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
             .body(ApiResponse.error("存取被拒絕"));
+    }
+
+    // Bean Validation 失敗（例如 @Valid @RequestBody 不符合 @NotBlank 等約束）→ 400
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleValidationError(MethodArgumentNotValidException e) {
+        String message = "請求參數不正確";
+        var fieldError = e.getBindingResult().getFieldError();
+        if (fieldError != null && fieldError.getDefaultMessage() != null) {
+            message = fieldError.getDefaultMessage();
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ApiResponse.error(message));
     }
 }

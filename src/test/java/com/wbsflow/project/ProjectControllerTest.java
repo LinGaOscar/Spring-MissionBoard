@@ -113,6 +113,17 @@ class ProjectControllerTest {
     }
 
     @Test
+    void createProjectWithBlankNameReturnsValidationError() throws Exception {
+        Cookie session = loginAs("leaderA");
+
+        mockMvc.perform(post("/api/projects").cookie(session).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"\",\"description\":\"x\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
     void listReturnsOnlySameSectionProjectsForSectionChief() throws Exception {
         Cookie session = loginAs("chiefA");
 
