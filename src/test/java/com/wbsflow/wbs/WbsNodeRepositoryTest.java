@@ -119,4 +119,28 @@ class WbsNodeRepositoryTest {
         assertThat(saved.getAssignee().getUsername()).isEqualTo("member");
         assertThat(saved.getStartDate()).isEqualTo(LocalDate.of(2026, 7, 20));
     }
+
+    @Test
+    void clearsAssigneeForUserInProjectOnly() {
+        Project project = newProject();
+        User member = userRepository.save(newUser("member", User.Role.PROJECT_MEMBER, project.getSection()));
+
+        WbsNode l1 = new WbsNode();
+        l1.setProject(project);
+        l1.setLevel((short) 1);
+        l1.setTitle("SIT");
+        WbsNode savedL1 = wbsNodeRepository.save(l1);
+
+        WbsNode l3 = new WbsNode();
+        l3.setProject(project);
+        l3.setParent(savedL1);
+        l3.setLevel((short) 3);
+        l3.setTitle("細項");
+        l3.setAssignee(member);
+        WbsNode savedL3 = wbsNodeRepository.save(l3);
+
+        wbsNodeRepository.clearAssigneeForUserInProject(project.getId(), member.getId());
+
+        assertThat(wbsNodeRepository.findById(savedL3.getId()).orElseThrow().getAssignee()).isNull();
+    }
 }

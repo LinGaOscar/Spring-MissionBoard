@@ -10,6 +10,8 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
@@ -49,6 +51,34 @@ class ProjectMemberRepositoryTest {
 
         assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(project.getId(), member.getId())).isTrue();
         assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(project.getId(), owner.getId())).isFalse();
+    }
+
+    @Test
+    void findsAllMembersOfProject() {
+        Department section = departmentRepository.save(newSection());
+        User owner = userRepository.save(newUser("leader", User.Role.PROJECT_LEADER, section));
+        User member = userRepository.save(newUser("member", User.Role.PROJECT_MEMBER, section));
+
+        Project project = new Project();
+        project.setName("測試專案");
+        project.setSection(section);
+        project.setOwner(owner);
+        project.setCreatedBy(owner);
+        project = projectRepository.save(project);
+
+        ProjectMember pmOwner = new ProjectMember();
+        pmOwner.setId(new ProjectMemberId(project.getId(), owner.getId()));
+        pmOwner.setAssignedBy(owner);
+        projectMemberRepository.save(pmOwner);
+
+        ProjectMember pmMember = new ProjectMember();
+        pmMember.setId(new ProjectMemberId(project.getId(), member.getId()));
+        pmMember.setAssignedBy(owner);
+        projectMemberRepository.save(pmMember);
+
+        List<ProjectMember> members = projectMemberRepository.findByIdProjectId(project.getId());
+
+        assertThat(members).hasSize(2);
     }
 
     private Department newSection() {
