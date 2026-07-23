@@ -130,6 +130,10 @@ public class ProjectService {
     // 移除成員時連動清除其在該專案下的節點指派（CLAUDE.md 核心規則，即使節點 CRUD 尚未實作也要保證）
     @Transactional
     public void removeMember(Long projectId, Long userId) {
+        // 檢查成員是否存在，不存在則拋 404（符合 spec 要求）
+        if (!projectMemberRepository.existsByIdProjectIdAndIdUserId(projectId, userId)) {
+            throw new EntityNotFoundException("該使用者不是此專案成員");
+        }
         projectMemberRepository.deleteById(new ProjectMemberId(projectId, userId));
         // 顯式 flush：deleteById 找到的實體常已存在於一級快取（先前查詢留下），
         // 刪除動作會延後到 flush 才真正送出 DELETE；同交易內若緊接著查詢

@@ -263,4 +263,11 @@ class ProjectServiceTest {
         assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(projectA.getId(), memberA.getId())).isFalse();
         assertThat(wbsNodeRepository.findById(savedL3.getId()).orElseThrow().getAssignee()).isNull();
     }
+
+    @Test
+    void removeMemberThrowsNotFoundForNonMemberUser() {
+        assertThatThrownBy(() -> projectService.removeMember(projectA.getId(), outsiderA.getId()))
+            .isInstanceOf(EntityNotFoundException.class)
+            .hasMessageContaining("該使用者不是此專案成員");
+    }
 }
