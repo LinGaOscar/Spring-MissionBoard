@@ -124,6 +124,7 @@ class WbsNodeRepositoryTest {
     void clearsAssigneeForUserInProjectOnly() {
         Project project = newProject();
         User member = userRepository.save(newUser("member", User.Role.PROJECT_MEMBER, project.getSection()));
+        User member2 = userRepository.save(newUser("member2", User.Role.PROJECT_MEMBER, project.getSection()));
 
         WbsNode l1 = new WbsNode();
         l1.setProject(project);
@@ -131,16 +132,65 @@ class WbsNodeRepositoryTest {
         l1.setTitle("SIT");
         WbsNode savedL1 = wbsNodeRepository.save(l1);
 
+        // Node 1: same project, target user (should be cleared)
         WbsNode l3 = new WbsNode();
         l3.setProject(project);
         l3.setParent(savedL1);
         l3.setLevel((short) 3);
-        l3.setTitle("細項");
+        l3.setTitle("細項 1");
         l3.setAssignee(member);
         WbsNode savedL3 = wbsNodeRepository.save(l3);
 
+        // Node 2: same project, different user (should NOT be cleared)
+        WbsNode l3_otherUser = new WbsNode();
+        l3_otherUser.setProject(project);
+        l3_otherUser.setParent(savedL1);
+        l3_otherUser.setLevel((short) 3);
+        l3_otherUser.setTitle("細項 2");
+        l3_otherUser.setAssignee(member2);
+        WbsNode savedL3_otherUser = wbsNodeRepository.save(l3_otherUser);
+
+        // Node 3: different project, same user (should NOT be cleared)
+        Department section2 = departmentRepository.save(newSection());
+        section2.setName("財務科");
+        departmentRepository.save(section2);
+
+        User leader2 = userRepository.save(newUser("leader2", User.Role.PROJECT_LEADER, section2));
+        Project project2 = new Project();
+        project2.setName("測試專案2");
+        project2.setSection(section2);
+        project2.setOwner(leader2);
+        project2.setCreatedBy(leader2);
+        Project savedProject2 = projectRepository.save(project2);
+
+        WbsNode l1_proj2 = new WbsNode();
+        l1_proj2.setProject(savedProject2);
+        l1_proj2.setLevel((short) 1);
+        l1_proj2.setTitle("SIT");
+        WbsNode savedL1_proj2 = wbsNodeRepository.save(l1_proj2);
+
+        WbsNode l3_otherProject = new WbsNode();
+        l3_otherProject.setProject(savedProject2);
+        l3_otherProject.setParent(savedL1_proj2);
+        l3_otherProject.setLevel((short) 3);
+        l3_otherProject.setTitle("細項 3");
+        l3_otherProject.setAssignee(member);
+        WbsNode savedL3_otherProject = wbsNodeRepository.save(l3_otherProject);
+
+        // Clear assignee for member in project only
         wbsNodeRepository.clearAssigneeForUserInProject(project.getId(), member.getId());
 
+        // Assert: same project + target user → cleared
         assertThat(wbsNodeRepository.findById(savedL3.getId()).orElseThrow().getAssignee()).isNull();
+
+        // Assert: same project + different user → NOT cleared (projectId scoping works)
+        User assigneeOtherUser = wbsNodeRepository.findById(savedL3_otherUser.getId()).orElseThrow().getAssignee();
+        assertThat(assigneeOtherUser).isNotNull();
+        assertThat(assigneeOtherUser.getId()).isEqualTo(member2.getId());
+
+        // Assert: different project + same user → NOT cleared (userId+projectId scoping works)
+        User assigneeOtherProject = wbsNodeRepository.findById(savedL3_otherProject.getId()).orElseThrow().getAssignee();
+        assertThat(assigneeOtherProject).isNotNull();
+        assertThat(assigneeOtherProject.getId()).isEqualTo(member.getId());
     }
 }
