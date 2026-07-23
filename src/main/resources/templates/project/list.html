@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <title>專案列表 - WBS 管理系統</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div th:replace="~{fragments/header :: header}"></div>
+<div class="layout">
+  <div th:replace="~{fragments/sidebar :: sidebar}"></div>
+  <main class="main-content">
+    <div class="page-header">
+      <h1>專案列表</h1>
+    </div>
+    <div id="project-grid" class="project-grid"></div>
+  </main>
+</div>
+<div th:replace="~{fragments/footer :: footer}"></div>
+<script>
+  // 純伺服器渲染頁的最小互動：抓取後用 DOM API 逐一組卡片，避免 innerHTML 拼接使用者輸入內容導致 XSS
+  fetch('/api/projects')
+    .then(function (res) { return res.json(); })
+    .then(function (body) {
+      var grid = document.getElementById('project-grid');
+      if (!body.success || body.data.length === 0) {
+        grid.textContent = '目前沒有專案';
+        return;
+      }
+      body.data.forEach(function (project) {
+        var card = document.createElement('div');
+        card.className = 'project-card';
+
+        var name = document.createElement('div');
+        name.className = 'project-card-name';
+        name.textContent = project.name;
+
+        var meta = document.createElement('div');
+        meta.className = 'project-card-meta';
+        meta.textContent = project.sectionName + ' · 負責人：' + project.ownerDisplayName;
+
+        card.appendChild(name);
+        card.appendChild(meta);
+        grid.appendChild(card);
+      });
+    });
+</script>
+</body>
+</html>
