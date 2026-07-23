@@ -4,6 +4,8 @@ import com.wbsflow.department.Department;
 import com.wbsflow.department.DepartmentRepository;
 import com.wbsflow.user.User;
 import com.wbsflow.user.UserRepository;
+import com.wbsflow.wbs.WbsNode;
+import com.wbsflow.wbs.WbsNodeRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,9 @@ class ProjectServiceTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private WbsNodeRepository wbsNodeRepository;
 
     private Department sectionA;
     private Department sectionB;
@@ -150,5 +155,112 @@ class ProjectServiceTest {
     void canReadThrowsNotFoundForNonExistentProject() {
         assertThatThrownBy(() -> projectService.canRead(999999L, chiefA))
             .isInstanceOf(EntityNotFoundException.class);
+    }
+
+    @Test
+    void canArchiveMirrorsCanWriteRulesButIgnoresArchivedFlag() {
+        assertThat(projectService.canArchive(projectA.getId(), director)).isFalse();
+        assertThat(projectService.canArchive(projectA.getId(), chiefA)).isTrue();
+        assertThat(projectService.canArchive(projectA.getId(), leaderA)).isTrue();
+        assertThat(projectService.canArchive(projectA.getId(), memberA)).isTrue();
+        assertThat(projectService.canArchive(projectA.getId(), outsiderA)).isFalse();
+    }
+
+    @Test
+    void canArchiveStillTrueAfterProjectIsArchived() {
+        projectA.setArchived(true);
+        projectRepository.save(projectA);
+
+        assertThat(projectService.canArchive(projectA.getId(), chiefA)).isTrue();
+        assertThat(projectService.canArchive(projectA.getId(), leaderA)).isTrue();
+    }
+
+    @Test
+    void createProjectAutoAssignsCreatorsDepartmentAsSectionAndAddsCreatorAsMember() {
+        Project created = projectService.createProject("新專案", "描述", leaderA);
+
+        assertThat(created.getId()).isNotNull();
+        assertThat(created.getSection().getId()).isEqualTo(sectionA.getId());
+        assertThat(created.getOwner().getId()).isEqualTo(leaderA.getId());
+        assertThat(created.getCreatedBy().getId()).isEqualTo(leaderA.getId());
+        assertThat(created.isArchived()).isFalse();
+        assertThat(projectService.isMember(created.getId(), leaderA.getId())).isTrue();
+    }
+
+    @Test
+    void createProjectThrowsWhenCreatorHasNoDepartment() {
+        User noDept = userRepository.save(newUser("floating", User.Role.PROJECT_MEMBER, null));
+
+        assertThatThrownBy(() -> projectService.createProject("新專案", "描述", noDept))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void listForUserReturnsRoleScopedResults() {
+        Project projectB = new Project();
+        projectB.setName("專案B");
+        projectB.setSection(sectionB);
+        User chiefB = userRepository.save(newUser("chiefBForList", User.Role.SECTION_CHIEF, sectionB));
+        projectB.setOwner(chiefB);
+        projectB.setCreatedBy(chiefB);
+        projectRepository.save(projectB);
+
+        assertThat(projectService.listForUser(director, false)).extracting(Project::getName)
+            .containsExactlyInAnyOrder("專案A", "專案B");
+        assertThat(projectService.listForUser(chiefA, false)).extracting(Project::getName)
+            .containsExactly("專案A");
+        assertThat(projectService.listForUser(leaderA, false)).extracting(Project::getName)
+            .containsExactly("專案A");
+        assertThat(projectService.listForUser(outsiderA, false)).isEmpty();
+    }
+
+    @Test
+    void archiveProjectIsIdempotentAndUnarchiveRestoresWriteAccess() {
+        projectService.archiveProject(projectA.getId(), chiefA);
+        assertThat(projectRepository.findById(projectA.getId()).orElseThrow().isArchived()).isTrue();
+
+        projectService.archiveProject(projectA.getId(), chiefA);
+        assertThat(projectRepository.findById(projectA.getId()).orElseThrow().isArchived()).isTrue();
+
+        projectService.unarchiveProject(projectA.getId(), chiefA);
+        assertThat(projectRepository.findById(projectA.getId()).orElseThrow().isArchived()).isFalse();
+        assertThat(projectService.canWrite(projectA.getId(), chiefA)).isTrue();
+    }
+
+    @Test
+    void archiveProjectDeniedForNonAuthorizedCaller() {
+        assertThatThrownBy(() -> projectService.archiveProject(projectA.getId(), outsiderA))
+            .isInstanceOf(SecurityException.class);
+    }
+
+    @Test
+    void changeOwnerAutoAddsNewOwnerAsMemberWhenNotAlreadyOne() {
+        projectService.changeOwner(projectA.getId(), outsiderA.getId(), leaderA);
+
+        Project updated = projectRepository.findById(projectA.getId()).orElseThrow();
+        assertThat(updated.getOwner().getId()).isEqualTo(outsiderA.getId());
+        assertThat(projectService.isMember(projectA.getId(), outsiderA.getId())).isTrue();
+    }
+
+    @Test
+    void removeMemberClearsAssigneeOnNodesWithinSameProjectOnly() {
+        WbsNode l1 = new WbsNode();
+        l1.setProject(projectA);
+        l1.setLevel((short) 1);
+        l1.setTitle("SIT");
+        WbsNode savedL1 = wbsNodeRepository.save(l1);
+
+        WbsNode l3 = new WbsNode();
+        l3.setProject(projectA);
+        l3.setParent(savedL1);
+        l3.setLevel((short) 3);
+        l3.setTitle("細項");
+        l3.setAssignee(memberA);
+        WbsNode savedL3 = wbsNodeRepository.save(l3);
+
+        projectService.removeMember(projectA.getId(), memberA.getId());
+
+        assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(projectA.getId(), memberA.getId())).isFalse();
+        assertThat(wbsNodeRepository.findById(savedL3.getId()).orElseThrow().getAssignee()).isNull();
     }
 }
