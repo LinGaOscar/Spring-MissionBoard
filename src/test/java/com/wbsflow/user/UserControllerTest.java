@@ -14,7 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -39,30 +39,47 @@ class UserControllerTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    private Department sectionA;
+    private Department sectionB;
+
     @BeforeEach
     void setUp() {
-        Department section = new Department();
-        section.setName("系統科");
-        section = departmentRepository.save(section);
+        sectionA = departmentRepository.save(newDept("系統科"));
+        sectionB = departmentRepository.save(newDept("網路科"));
 
+        saveUser("leader", "負責人", User.Role.PROJECT_LEADER, sectionA);
+        saveUser("chief", "科長", User.Role.SECTION_CHIEF, sectionA);
+        saveUser("memberB", "另科成員", User.Role.PROJECT_MEMBER, sectionB);
+    }
+
+    private Department newDept(String name) {
+        Department d = new Department();
+        d.setName(name);
+        return d;
+    }
+
+    private void saveUser(String username, String displayName, User.Role role, Department dept) {
         User user = new User();
-        user.setUsername("leader");
+        user.setUsername(username);
         user.setPassword(passwordEncoder.encode("password123"));
-        user.setDisplayName("負責人");
-        user.setRole(User.Role.PROJECT_LEADER);
-        user.setDepartment(section);
+        user.setDisplayName(displayName);
+        user.setRole(role);
+        user.setDepartment(dept);
         userRepository.save(user);
+    }
+
+    private Cookie loginAs(String username) throws Exception {
+        MvcResult result = mockMvc.perform(formLogin("/auth/login").user(username).password("password123"))
+            .andExpect(authenticated())
+            .andReturn();
+        return result.getResponse().getCookie("SESSION");
     }
 
     @Test
     void returnsAuthenticatedUserProfile() throws Exception {
-        MvcResult loginResult = mockMvc.perform(formLogin("/auth/login").user("leader").password("password123"))
-            .andExpect(authenticated())
-            .andReturn();
-        Cookie sessionCookie = loginResult.getResponse().getCookie("SESSION");
-        assertThat(sessionCookie).isNotNull();
+        Cookie session = loginAs("leader");
 
-        mockMvc.perform(get("/api/users/me").cookie(sessionCookie))
+        mockMvc.perform(get("/api/users/me").cookie(session))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success").value(true))
             .andExpect(jsonPath("$.data.username").value("leader"))
@@ -75,5 +92,24 @@ class UserControllerTest {
         mockMvc.perform(get("/api/users/me"))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void listReturnsAllUsersWithoutFilter() throws Exception {
+        Cookie session = loginAs("chief");
+
+        mockMvc.perform(get("/api/users").cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.length()").value(3));
+    }
+
+    @Test
+    void listFiltersByDepartmentId() throws Exception {
+        Cookie session = loginAs("chief");
+
+        mockMvc.perform(get("/api/users").param("departmentId", String.valueOf(sectionA.getId())).cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.length()").value(2))
+            .andExpect(jsonPath("$.data[*].username", containsInAnyOrder("leader", "chief")));
     }
 }
