@@ -207,6 +207,9 @@ public class WbsNodeService {
             if (item.parentId() != null && !nodeById.containsKey(item.parentId())) {
                 throw new SecurityException("父節點不屬於此專案: " + item.parentId());
             }
+            if (item.parentId() != null && item.parentId().equals(item.nodeId())) {
+                throw new IllegalArgumentException("節點不能是自己的父節點");
+            }
         }
 
         Map<Long, Integer> deltaByNodeId = new HashMap<>();

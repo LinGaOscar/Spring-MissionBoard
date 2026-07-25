@@ -467,6 +467,21 @@ class WbsNodeServiceTest {
     }
 
     @Test
+    void reorderRejectsNodeAsItsOwnParent() {
+        WbsNode l1 = newL1("SIT");
+
+        // parentId 等於 nodeId 本身會形成自我循環參照，即使深度檢查會放行也必須明確拒絕
+        assertThatThrownBy(() -> wbsNodeService.reorder(project.getId(), List.of(
+            new WbsNodeDto.ReorderItem(l1.getId(), l1.getId(), 0)
+        ))).isInstanceOf(IllegalArgumentException.class);
+
+        // 確認拒絕後完全沒有套用（level 與 parent 都維持原狀）
+        WbsNode reloaded = wbsNodeRepository.findById(l1.getId()).orElseThrow();
+        assertThat(reloaded.getLevel()).isEqualTo((short) 1);
+        assertThat(reloaded.getParent()).isNull();
+    }
+
+    @Test
     void reorderRejectsNodeNotBelongingToProject() {
         Project otherProject = new Project();
         otherProject.setName("別的專案");
