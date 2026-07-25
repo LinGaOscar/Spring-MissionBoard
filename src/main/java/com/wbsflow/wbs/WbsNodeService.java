@@ -7,6 +7,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 public class WbsNodeService {
@@ -92,6 +99,92 @@ public class WbsNodeService {
             deleteRecursively(child);
         }
         wbsNodeRepository.delete(node);
+    }
+
+    // 依角色範圍已在 controller 層檢查過 canRead，這裡只負責彙總計算
+    @Transactional(readOnly = true)
+    public List<WbsNodeDto.Response> getTree(Long projectId) {
+        List<WbsNode> allNodes = wbsNodeRepository.findByProjectId(projectId);
+        Map<Long, List<WbsNode>> childrenByParent = allNodes.stream()
+            .filter(n -> n.getParent() != null)
+            .collect(Collectors.groupingBy(n -> n.getParent().getId()));
+
+        Map<Long, Aggregate> aggregateByNodeId = new HashMap<>();
+        // 由下往上：先算所有 L2（依其 L3 子節點的儲存值），再算所有 L1（依其 L2 子節點「已彙總」的結果）
+        for (WbsNode node : allNodes) {
+            if (node.getLevel() == 2) {
+                aggregateByNodeId.put(node.getId(), aggregateFromL3Children(node, childrenByParent));
+            }
+        }
+        for (WbsNode node : allNodes) {
+            if (node.getLevel() == 1) {
+                aggregateByNodeId.put(node.getId(), aggregateFromL2Children(node, childrenByParent, aggregateByNodeId));
+            }
+        }
+
+        return allNodes.stream().map(node -> toResponse(node, aggregateByNodeId)).toList();
+    }
+
+    private record Aggregate(WbsNode.Status status, LocalDate startDate, LocalDate endDate) {
+    }
+
+    private Aggregate aggregateFromL3Children(WbsNode l2Node, Map<Long, List<WbsNode>> childrenByParent) {
+        List<WbsNode> children = childrenByParent.getOrDefault(l2Node.getId(), List.of());
+        return aggregate(
+            children.stream().map(WbsNode::getStatus).toList(),
+            children.stream().map(WbsNode::getStartDate).filter(Objects::nonNull).toList(),
+            children.stream().map(WbsNode::getEndDate).filter(Objects::nonNull).toList()
+        );
+    }
+
+    private Aggregate aggregateFromL2Children(WbsNode l1Node, Map<Long, List<WbsNode>> childrenByParent,
+            Map<Long, Aggregate> aggregateByNodeId) {
+        List<WbsNode> children = childrenByParent.getOrDefault(l1Node.getId(), List.of());
+        return aggregate(
+            children.stream().map(c -> aggregateByNodeId.get(c.getId()).status()).toList(),
+            children.stream().map(c -> aggregateByNodeId.get(c.getId()).startDate())
+                .filter(Objects::nonNull).toList(),
+            children.stream().map(c -> aggregateByNodeId.get(c.getId()).endDate())
+                .filter(Objects::nonNull).toList()
+        );
+    }
+
+    // 全部 DONE→DONE；全部 NOT_STARTED（含無子節點的空節點）→NOT_STARTED；其餘→IN_PROGRESS
+    private Aggregate aggregate(List<WbsNode.Status> statuses, List<LocalDate> starts, List<LocalDate> ends) {
+        WbsNode.Status status;
+        if (statuses.isEmpty() || statuses.stream().allMatch(s -> s == WbsNode.Status.NOT_STARTED)) {
+            status = WbsNode.Status.NOT_STARTED;
+        } else if (statuses.stream().allMatch(s -> s == WbsNode.Status.DONE)) {
+            status = WbsNode.Status.DONE;
+        } else {
+            status = WbsNode.Status.IN_PROGRESS;
+        }
+        LocalDate start = starts.stream().min(LocalDate::compareTo).orElse(null);
+        LocalDate end = ends.stream().max(LocalDate::compareTo).orElse(null);
+        return new Aggregate(status, start, end);
+    }
+
+    private WbsNodeDto.Response toResponse(WbsNode node, Map<Long, Aggregate> aggregateByNodeId) {
+        Long parentId = node.getParent() != null ? node.getParent().getId() : null;
+        if (node.getLevel() == 3) {
+            return new WbsNodeDto.Response(
+                node.getId(), parentId, node.getLevel(), node.getTitle(),
+                node.getAssignee() != null ? node.getAssignee().getId() : null,
+                node.getAssignee() != null ? node.getAssignee().getDisplayName() : null,
+                node.getStatus() != null ? node.getStatus().name() : null,
+                node.getPriority() != null ? node.getPriority().name() : null,
+                node.getStartDate(), node.getEndDate(),
+                node.getNotes(), node.getSortOrder()
+            );
+        }
+        Aggregate agg = aggregateByNodeId.get(node.getId());
+        return new WbsNodeDto.Response(
+            node.getId(), parentId, node.getLevel(), node.getTitle(),
+            null, null,
+            agg.status().name(), null,
+            agg.startDate(), agg.endDate(),
+            node.getNotes(), node.getSortOrder()
+        );
     }
 
     // 統一的 IDOR 防護：確認節點存在且屬於路徑上的專案

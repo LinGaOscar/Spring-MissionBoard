@@ -14,6 +14,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -256,5 +258,90 @@ class WbsNodeServiceTest {
     void deleteThrowsNotFoundForNonExistentNode() {
         assertThatThrownBy(() -> wbsNodeService.deleteNode(project.getId(), 999999L))
             .isInstanceOf(EntityNotFoundException.class);
+    }
+
+    @Test
+    void getTreeAggregatesEmptyNodeAsNotStarted() {
+        newL1("SIT");
+
+        List<WbsNodeDto.Response> tree = wbsNodeService.getTree(project.getId());
+
+        assertThat(tree).hasSize(1);
+        assertThat(tree.get(0).status()).isEqualTo("NOT_STARTED");
+        assertThat(tree.get(0).startDate()).isNull();
+    }
+
+    @Test
+    void getTreeAggregatesAllDoneAsL2Done() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3a = newL3(l2, "功能A");
+        l3a.setStatus(WbsNode.Status.DONE);
+        l3a.setStartDate(java.time.LocalDate.of(2026, 8, 1));
+        l3a.setEndDate(java.time.LocalDate.of(2026, 8, 5));
+        wbsNodeRepository.save(l3a);
+        WbsNode l3b = newL3(l2, "功能B");
+        l3b.setStatus(WbsNode.Status.DONE);
+        l3b.setStartDate(java.time.LocalDate.of(2026, 8, 3));
+        l3b.setEndDate(java.time.LocalDate.of(2026, 8, 10));
+        wbsNodeRepository.save(l3b);
+
+        List<WbsNodeDto.Response> tree = wbsNodeService.getTree(project.getId());
+
+        WbsNodeDto.Response l2Response = tree.stream().filter(r -> r.id().equals(l2.getId())).findFirst().orElseThrow();
+        assertThat(l2Response.status()).isEqualTo("DONE");
+        assertThat(l2Response.startDate()).isEqualTo(java.time.LocalDate.of(2026, 8, 1));
+        assertThat(l2Response.endDate()).isEqualTo(java.time.LocalDate.of(2026, 8, 10));
+    }
+
+    @Test
+    void getTreeAggregatesMixedStatusAsInProgress() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3a = newL3(l2, "功能A");
+        l3a.setStatus(WbsNode.Status.DONE);
+        wbsNodeRepository.save(l3a);
+        WbsNode l3b = newL3(l2, "功能B");
+        l3b.setStatus(WbsNode.Status.NOT_STARTED);
+        wbsNodeRepository.save(l3b);
+
+        List<WbsNodeDto.Response> tree = wbsNodeService.getTree(project.getId());
+
+        WbsNodeDto.Response l2Response = tree.stream().filter(r -> r.id().equals(l2.getId())).findFirst().orElseThrow();
+        assertThat(l2Response.status()).isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void getTreeAggregatesL1FromL2AggregatedResultsNotDirectlyFromL3() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode doneCategory = newL2(l1, "已完成類別");
+        WbsNode l3Done = newL3(doneCategory, "功能A");
+        l3Done.setStatus(WbsNode.Status.DONE);
+        wbsNodeRepository.save(l3Done);
+        // 第二個 L2 是空節點（無子節點），依規則視為 NOT_STARTED，
+        // 使 L1 的彙總來源是「DONE、NOT_STARTED」混合 → IN_PROGRESS
+        newL2(l1, "空類別");
+
+        List<WbsNodeDto.Response> tree = wbsNodeService.getTree(project.getId());
+
+        WbsNodeDto.Response l1Response = tree.stream().filter(r -> r.id().equals(l1.getId())).findFirst().orElseThrow();
+        assertThat(l1Response.status()).isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void getTreeReturnsStoredValuesDirectlyForL3() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+        l3.setStatus(WbsNode.Status.IN_PROGRESS);
+        l3.setPriority(WbsNode.Priority.HIGH);
+        wbsNodeRepository.save(l3);
+
+        List<WbsNodeDto.Response> tree = wbsNodeService.getTree(project.getId());
+
+        WbsNodeDto.Response l3Response = tree.stream().filter(r -> r.id().equals(l3.getId())).findFirst().orElseThrow();
+        assertThat(l3Response.status()).isEqualTo("IN_PROGRESS");
+        assertThat(l3Response.priority()).isEqualTo("HIGH");
+        assertThat(l3Response.assigneeId()).isNull();
     }
 }
