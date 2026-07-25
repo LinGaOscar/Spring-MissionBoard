@@ -375,4 +375,108 @@ class WbsNodeServiceTest {
         assertThat(l3Response.priority()).isEqualTo("HIGH");
         assertThat(l3Response.assigneeId()).isNull();
     }
+
+    @Test
+    void reorderChangesSortOrderWithinSameParent() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2a = newL2(l1, "類別A");
+        WbsNode l2b = newL2(l1, "類別B");
+
+        wbsNodeService.reorder(project.getId(), List.of(
+            new WbsNodeDto.ReorderItem(l2a.getId(), l1.getId(), 1),
+            new WbsNodeDto.ReorderItem(l2b.getId(), l1.getId(), 0)
+        ));
+
+        assertThat(wbsNodeRepository.findById(l2a.getId()).orElseThrow().getSortOrder()).isEqualTo(1);
+        assertThat(wbsNodeRepository.findById(l2b.getId()).orElseThrow().getSortOrder()).isEqualTo(0);
+    }
+
+    @Test
+    void reorderAcrossLevelsPromotesL3ToL1() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+
+        wbsNodeService.reorder(project.getId(), List.of(
+            new WbsNodeDto.ReorderItem(l3.getId(), null, 0)
+        ));
+
+        WbsNode moved = wbsNodeRepository.findById(l3.getId()).orElseThrow();
+        assertThat(moved.getLevel()).isEqualTo((short) 1);
+        assertThat(moved.getParent()).isNull();
+    }
+
+    @Test
+    void reorderClearsL3OnlyFieldsWhenNodeNoLongerL3() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+        l3.setStatus(WbsNode.Status.IN_PROGRESS);
+        l3.setPriority(WbsNode.Priority.HIGH);
+        wbsNodeRepository.save(l3);
+
+        wbsNodeService.reorder(project.getId(), List.of(
+            new WbsNodeDto.ReorderItem(l3.getId(), null, 0)
+        ));
+
+        WbsNode moved = wbsNodeRepository.findById(l3.getId()).orElseThrow();
+        assertThat(moved.getStatus()).isNull();
+        assertThat(moved.getPriority()).isNull();
+    }
+
+    @Test
+    void reorderCascadesLevelShiftToDescendants() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+        WbsNode anotherL1 = newL1("UAT");
+
+        // 把 L2（帶著它的 L3 子節點）搬到另一個 L1 底下，level 應維持 2/3 不變（同層搬移，delta=0）
+        wbsNodeService.reorder(project.getId(), List.of(
+            new WbsNodeDto.ReorderItem(l2.getId(), anotherL1.getId(), 0)
+        ));
+
+        assertThat(wbsNodeRepository.findById(l2.getId()).orElseThrow().getLevel()).isEqualTo((short) 2);
+        assertThat(wbsNodeRepository.findById(l3.getId()).orElseThrow().getLevel()).isEqualTo((short) 3);
+        assertThat(wbsNodeRepository.findById(l3.getId()).orElseThrow().getParent().getId()).isEqualTo(l2.getId());
+    }
+
+    @Test
+    void reorderRejectsMoveThatWouldExceedThreeLevels() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+        WbsNode anotherL1 = newL1("UAT");
+        WbsNode anotherL2 = newL2(anotherL1, "環境建置");
+        WbsNode anotherL3 = newL3(anotherL2, "防火牆申請");
+
+        // 把帶有 L3 子節點的 L2 搬到別的 L2 底下會變成 L3，其子節點會變成第四層 → 拒絕
+        assertThatThrownBy(() -> wbsNodeService.reorder(project.getId(), List.of(
+            new WbsNodeDto.ReorderItem(l2.getId(), anotherL2.getId(), 0)
+        ))).isInstanceOf(IllegalArgumentException.class);
+
+        // 確認拒絕後完全沒有套用（level 與 parent 都維持原狀）
+        assertThat(wbsNodeRepository.findById(l2.getId()).orElseThrow().getLevel()).isEqualTo((short) 2);
+        assertThat(wbsNodeRepository.findById(l2.getId()).orElseThrow().getParent().getId()).isEqualTo(l1.getId());
+    }
+
+    @Test
+    void reorderRejectsNodeNotBelongingToProject() {
+        Project otherProject = new Project();
+        otherProject.setName("別的專案");
+        otherProject.setSection(sectionA);
+        otherProject.setOwner(project.getOwner());
+        otherProject.setCreatedBy(project.getOwner());
+        otherProject = projectRepository.save(otherProject);
+
+        WbsNode foreignL1 = new WbsNode();
+        foreignL1.setProject(otherProject);
+        foreignL1.setLevel((short) 1);
+        foreignL1.setTitle("別專案的階段");
+        WbsNode savedForeignL1 = wbsNodeRepository.save(foreignL1);
+
+        assertThatThrownBy(() -> wbsNodeService.reorder(project.getId(), List.of(
+            new WbsNodeDto.ReorderItem(savedForeignL1.getId(), null, 0)
+        ))).isInstanceOf(SecurityException.class);
+    }
 }

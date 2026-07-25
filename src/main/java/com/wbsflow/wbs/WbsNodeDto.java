@@ -17,4 +17,7 @@ public class WbsNodeDto {
                             LocalDate startDate, LocalDate endDate,
                             String notes, int sortOrder) {
     }
+
+    public record ReorderItem(Long nodeId, Long parentId, int sortOrder) {
+    }
 }

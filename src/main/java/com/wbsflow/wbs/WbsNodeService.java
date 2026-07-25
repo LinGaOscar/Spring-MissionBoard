@@ -188,6 +188,82 @@ public class WbsNodeService {
         );
     }
 
+    // 支援跨層級搬移：套用前先驗證整批操作都不會讓任何子孫超過三層上限，超限則整批拒絕、不部分套用
+    @Transactional
+    public void reorder(Long projectId, List<WbsNodeDto.ReorderItem> items) {
+        List<WbsNode> allNodes = wbsNodeRepository.findByProjectId(projectId);
+        Map<Long, WbsNode> nodeById = allNodes.stream()
+            .collect(Collectors.toMap(WbsNode::getId, n -> n));
+        Map<Long, List<WbsNode>> childrenByParent = allNodes.stream()
+            .filter(n -> n.getParent() != null)
+            .collect(Collectors.groupingBy(n -> n.getParent().getId()));
+
+        for (WbsNodeDto.ReorderItem item : items) {
+            if (!nodeById.containsKey(item.nodeId())) {
+                throw new SecurityException("節點不屬於此專案: " + item.nodeId());
+            }
+            if (item.parentId() != null && !nodeById.containsKey(item.parentId())) {
+                throw new SecurityException("父節點不屬於此專案: " + item.parentId());
+            }
+        }
+
+        Map<Long, Integer> deltaByNodeId = new HashMap<>();
+        for (WbsNodeDto.ReorderItem item : items) {
+            WbsNode node = nodeById.get(item.nodeId());
+            int newLevel = item.parentId() == null ? 1 : nodeById.get(item.parentId()).getLevel() + 1;
+            int subtreeDepth = maxDepth(node.getId(), childrenByParent);
+            if (newLevel + subtreeDepth - 1 > 3) {
+                throw new IllegalArgumentException("搬移後子樹層級將超過三層上限");
+            }
+            deltaByNodeId.put(item.nodeId(), newLevel - node.getLevel());
+        }
+
+        for (WbsNodeDto.ReorderItem item : items) {
+            WbsNode node = nodeById.get(item.nodeId());
+            WbsNode newParent = item.parentId() == null ? null : nodeById.get(item.parentId());
+            node.setParent(newParent);
+            node.setSortOrder(item.sortOrder());
+            int delta = deltaByNodeId.get(item.nodeId());
+            applyLevelShift(node, delta);
+            wbsNodeRepository.save(node);
+            for (WbsNode child : childrenByParent.getOrDefault(node.getId(), List.of())) {
+                shiftDescendant(child, delta, childrenByParent);
+            }
+        }
+    }
+
+    // 回傳以 nodeId 為根的子樹最大深度（葉節點本身深度為 1）
+    private int maxDepth(Long nodeId, Map<Long, List<WbsNode>> childrenByParent) {
+        List<WbsNode> children = childrenByParent.getOrDefault(nodeId, List.of());
+        if (children.isEmpty()) return 1;
+        int max = 0;
+        for (WbsNode child : children) {
+            max = Math.max(max, maxDepth(child.getId(), childrenByParent));
+        }
+        return 1 + max;
+    }
+
+    // 套用 level 位移；若節點因此不再是 L3，清空 L3 專屬欄位以符合 DB CHECK 約束
+    private void applyLevelShift(WbsNode node, int delta) {
+        if (delta == 0) return;
+        node.setLevel((short) (node.getLevel() + delta));
+        if (node.getLevel() != 3) {
+            node.setAssignee(null);
+            node.setStatus(null);
+            node.setPriority(null);
+            node.setStartDate(null);
+            node.setEndDate(null);
+        }
+    }
+
+    private void shiftDescendant(WbsNode node, int delta, Map<Long, List<WbsNode>> childrenByParent) {
+        applyLevelShift(node, delta);
+        wbsNodeRepository.save(node);
+        for (WbsNode child : childrenByParent.getOrDefault(node.getId(), List.of())) {
+            shiftDescendant(child, delta, childrenByParent);
+        }
+    }
+
     // 統一的 IDOR 防護：確認節點存在且屬於路徑上的專案
     private WbsNode getNodeInProject(Long projectId, Long nodeId) {
         WbsNode node = wbsNodeRepository.findById(nodeId)
