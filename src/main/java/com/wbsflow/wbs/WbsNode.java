@@ -6,6 +6,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
@@ -25,8 +27,11 @@ public class WbsNode {
     @JoinColumn(name = "project_id", nullable = false)
     private Project project;
 
+    // 對應 sql/01_ddl.sql 的 parent_id ON DELETE CASCADE：標註後 Hibernate 產生的 DDL（測試用 H2）
+    // 才會帶上同樣的資料庫層級聯刪，讓 WbsNodeService.deleteNode 的整棵子樹刪除在測試與正式環境行為一致
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private WbsNode parent;
 
     @Column(nullable = false)
