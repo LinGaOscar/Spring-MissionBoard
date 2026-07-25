@@ -22,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class WbsNodeRepositoryTest {
 
+    private static int projectCounter = 0;
+
     @Autowired
     private WbsNodeRepository wbsNodeRepository;
 
@@ -36,9 +38,10 @@ class WbsNodeRepositoryTest {
 
     private Project newProject() {
         Department section = departmentRepository.save(newSection());
-        User owner = userRepository.save(newUser("leader", User.Role.PROJECT_LEADER, section));
+        String username = "leader" + (++projectCounter);
+        User owner = userRepository.save(newUser(username, User.Role.PROJECT_LEADER, section));
         Project p = new Project();
-        p.setName("測試專案");
+        p.setName("測試專案" + projectCounter);
         p.setSection(section);
         p.setOwner(owner);
         p.setCreatedBy(owner);
@@ -192,5 +195,42 @@ class WbsNodeRepositoryTest {
         User assigneeOtherProject = wbsNodeRepository.findById(savedL3_otherProject.getId()).orElseThrow().getAssignee();
         assertThat(assigneeOtherProject).isNotNull();
         assertThat(assigneeOtherProject.getId()).isEqualTo(member.getId());
+    }
+
+    @Test
+    void findsAllNodesByProjectId() {
+        Project project = newProject();
+        Project otherProject = newProject();
+
+        WbsNode l1 = new WbsNode();
+        l1.setProject(project);
+        l1.setLevel((short) 1);
+        l1.setTitle("SIT");
+        wbsNodeRepository.save(l1);
+
+        WbsNode otherL1 = new WbsNode();
+        otherL1.setProject(otherProject);
+        otherL1.setLevel((short) 1);
+        otherL1.setTitle("UAT");
+        wbsNodeRepository.save(otherL1);
+
+        List<WbsNode> found = wbsNodeRepository.findByProjectId(project.getId());
+
+        assertThat(found).extracting(WbsNode::getTitle).containsExactly("SIT");
+    }
+
+    @Test
+    void existsByProjectIdReflectsCurrentNodeCount() {
+        Project project = newProject();
+
+        assertThat(wbsNodeRepository.existsByProjectId(project.getId())).isFalse();
+
+        WbsNode l1 = new WbsNode();
+        l1.setProject(project);
+        l1.setLevel((short) 1);
+        l1.setTitle("SIT");
+        wbsNodeRepository.save(l1);
+
+        assertThat(wbsNodeRepository.existsByProjectId(project.getId())).isTrue();
     }
 }
