@@ -20,4 +20,13 @@ public class WbsNodeDto {
 
     public record ReorderItem(Long nodeId, Long parentId, int sortOrder) {
     }
+
+    public record StatusRequest(String status) {
+    }
+
+    public record AssigneeRequest(Long assigneeId) {
+    }
+
+    public record InitRequest(java.util.List<Long> stagePresetIds) {
+    }
 }

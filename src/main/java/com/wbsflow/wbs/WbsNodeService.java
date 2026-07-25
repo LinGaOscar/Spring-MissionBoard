@@ -2,6 +2,7 @@ package com.wbsflow.wbs;
 
 import com.wbsflow.project.Project;
 import com.wbsflow.project.ProjectService;
+import com.wbsflow.user.User;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ public class WbsNodeService {
     private final WbsNodeRepository wbsNodeRepository;
     private final WbsPresetRepository wbsPresetRepository;
     private final ProjectService projectService;
+    private final com.wbsflow.user.UserRepository userRepository;
 
     // 建立節點：L1/L2 需選單項目（存文字快照），L3 為自由文字；層級由父節點推算，不接受前端指定
     @Transactional
@@ -261,6 +263,71 @@ public class WbsNodeService {
         wbsNodeRepository.save(node);
         for (WbsNode child : childrenByParent.getOrDefault(node.getId(), List.of())) {
             shiftDescendant(child, delta, childrenByParent);
+        }
+    }
+
+    // 僅 L3 可設定狀態；非法字串由 WbsNode.Status.valueOf 自動拋 IllegalArgumentException（GlobalExceptionHandler 已處理）
+    @Transactional
+    public WbsNode updateStatus(Long projectId, Long nodeId, String status) {
+        WbsNode node = getNodeInProject(projectId, nodeId);
+        if (node.getLevel() != 3) {
+            throw new IllegalArgumentException("僅細項（L3）可設定狀態");
+        }
+        node.setStatus(WbsNode.Status.valueOf(status));
+        return wbsNodeRepository.save(node);
+    }
+
+    // 僅 L3 可指派；assigneeId 為 null 表示取消指派；新指派對象必須是專案成員
+    @Transactional
+    public WbsNode updateAssignee(Long projectId, Long nodeId, Long assigneeId) {
+        WbsNode node = getNodeInProject(projectId, nodeId);
+        if (node.getLevel() != 3) {
+            throw new IllegalArgumentException("僅細項（L3）可指派");
+        }
+        if (assigneeId == null) {
+            node.setAssignee(null);
+        } else {
+            if (!projectService.isMember(projectId, assigneeId)) {
+                throw new IllegalArgumentException("指派對象必須是專案成員");
+            }
+            User assignee = userRepository.findById(assigneeId)
+                .orElseThrow(() -> new EntityNotFoundException("使用者不存在"));
+            node.setAssignee(assignee);
+        }
+        return wbsNodeRepository.save(node);
+    }
+
+    // 建專案 L1 骨架：不傳 stagePresetIds 則預設該專案科別可見的全部已啟用 STAGE；僅空專案可初始化
+    @Transactional
+    public void initStages(Long projectId, List<Long> stagePresetIds) {
+        Project project = projectService.getById(projectId);
+        if (wbsNodeRepository.existsByProjectId(projectId)) {
+            throw new IllegalArgumentException("專案已有節點，無法重複初始化");
+        }
+
+        List<WbsPreset> presets;
+        if (stagePresetIds == null || stagePresetIds.isEmpty()) {
+            presets = wbsPresetRepository.findVisiblePresets(WbsPreset.Type.STAGE, project.getSection().getId());
+        } else {
+            presets = wbsPresetRepository.findAllById(stagePresetIds);
+            for (WbsPreset preset : presets) {
+                if (preset.getType() != WbsPreset.Type.STAGE) {
+                    throw new IllegalArgumentException("選單項目型別不符: " + preset.getId());
+                }
+                if (preset.getSection() != null && !preset.getSection().getId().equals(project.getSection().getId())) {
+                    throw new IllegalArgumentException("選單項目不屬於此專案科別: " + preset.getId());
+                }
+            }
+        }
+
+        int sortOrder = 0;
+        for (WbsPreset preset : presets) {
+            WbsNode node = new WbsNode();
+            node.setProject(project);
+            node.setLevel((short) 1);
+            node.setTitle(preset.getName());
+            node.setSortOrder(sortOrder++);
+            wbsNodeRepository.save(node);
         }
     }
 

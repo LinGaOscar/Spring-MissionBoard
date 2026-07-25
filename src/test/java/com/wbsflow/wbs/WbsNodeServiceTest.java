@@ -3,6 +3,9 @@ package com.wbsflow.wbs;
 import com.wbsflow.department.Department;
 import com.wbsflow.department.DepartmentRepository;
 import com.wbsflow.project.Project;
+import com.wbsflow.project.ProjectMember;
+import com.wbsflow.project.ProjectMemberId;
+import com.wbsflow.project.ProjectMemberRepository;
 import com.wbsflow.project.ProjectRepository;
 import com.wbsflow.user.User;
 import com.wbsflow.user.UserRepository;
@@ -41,6 +44,9 @@ class WbsNodeServiceTest {
 
     @Autowired
     private DepartmentRepository departmentRepository;
+
+    @Autowired
+    private ProjectMemberRepository projectMemberRepository;
 
     private Department sectionA;
     private Department sectionB;
@@ -478,5 +484,122 @@ class WbsNodeServiceTest {
         assertThatThrownBy(() -> wbsNodeService.reorder(project.getId(), List.of(
             new WbsNodeDto.ReorderItem(savedForeignL1.getId(), null, 0)
         ))).isInstanceOf(SecurityException.class);
+    }
+
+    @Test
+    void updateStatusOnL3Node() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+
+        WbsNode updated = wbsNodeService.updateStatus(project.getId(), l3.getId(), "IN_PROGRESS");
+
+        assertThat(updated.getStatus()).isEqualTo(WbsNode.Status.IN_PROGRESS);
+    }
+
+    @Test
+    void updateStatusRejectedOnNonL3Node() {
+        WbsNode l1 = newL1("SIT");
+
+        assertThatThrownBy(() -> wbsNodeService.updateStatus(project.getId(), l1.getId(), "DONE"))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void updateStatusRejectsInvalidEnumValue() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+
+        assertThatThrownBy(() -> wbsNodeService.updateStatus(project.getId(), l3.getId(), "NOT_A_STATUS"))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void updateAssigneeRequiresProjectMembership() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+        User outsider = userRepository.save(newUser("outsider", sectionA));
+
+        assertThatThrownBy(() -> wbsNodeService.updateAssignee(project.getId(), l3.getId(), outsider.getId()))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void updateAssigneeSucceedsForProjectMember() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+        User member = userRepository.save(newUser("member", sectionA));
+        ProjectMember pm = new ProjectMember();
+        pm.setId(new ProjectMemberId(project.getId(), member.getId()));
+        pm.setAssignedBy(member);
+        projectMemberRepository.save(pm);
+
+        WbsNode updated = wbsNodeService.updateAssignee(project.getId(), l3.getId(), member.getId());
+
+        assertThat(updated.getAssignee().getId()).isEqualTo(member.getId());
+    }
+
+    @Test
+    void updateAssigneeWithNullClearsAssignment() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+        WbsNode l3 = newL3(l2, "登入功能開發");
+        User member = userRepository.save(newUser("member", sectionA));
+        ProjectMember pm = new ProjectMember();
+        pm.setId(new ProjectMemberId(project.getId(), member.getId()));
+        pm.setAssignedBy(member);
+        projectMemberRepository.save(pm);
+        wbsNodeService.updateAssignee(project.getId(), l3.getId(), member.getId());
+
+        WbsNode cleared = wbsNodeService.updateAssignee(project.getId(), l3.getId(), null);
+
+        assertThat(cleared.getAssignee()).isNull();
+    }
+
+    @Test
+    void updateAssigneeRejectedOnNonL3Node() {
+        WbsNode l1 = newL1("SIT");
+        User member = userRepository.save(newUser("member", sectionA));
+
+        assertThatThrownBy(() -> wbsNodeService.updateAssignee(project.getId(), l1.getId(), member.getId()))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void initStagesCreatesL1NodeForEachSelectedStage() {
+        wbsNodeService.initStages(project.getId(), List.of(stagePreset.getId()));
+
+        List<WbsNode> nodes = wbsNodeRepository.findByProjectId(project.getId());
+        assertThat(nodes).hasSize(1);
+        assertThat(nodes.get(0).getLevel()).isEqualTo((short) 1);
+        assertThat(nodes.get(0).getTitle()).isEqualTo("SIT");
+    }
+
+    @Test
+    void initStagesDefaultsToAllVisibleStagesWhenNoneSpecified() {
+        wbsNodeService.initStages(project.getId(), null);
+
+        List<WbsNode> nodes = wbsNodeRepository.findByProjectId(project.getId());
+        // setUp 只建立了一個對本專案科別可見的 STAGE（stagePreset，全域）；
+        // otherSectionStagePreset 屬於 sectionB，對本專案（sectionA）不可見
+        assertThat(nodes).hasSize(1);
+        assertThat(nodes.get(0).getTitle()).isEqualTo("SIT");
+    }
+
+    @Test
+    void initStagesRejectsWhenProjectAlreadyHasNodes() {
+        newL1("既有節點");
+
+        assertThatThrownBy(() -> wbsNodeService.initStages(project.getId(), List.of(stagePreset.getId())))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void initStagesRejectsPresetFromOtherSection() {
+        assertThatThrownBy(() -> wbsNodeService.initStages(project.getId(), List.of(otherSectionStagePreset.getId())))
+            .isInstanceOf(IllegalArgumentException.class);
     }
 }
