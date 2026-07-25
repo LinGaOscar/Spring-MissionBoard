@@ -154,6 +154,17 @@ class WbsNodeServiceTest {
     }
 
     @Test
+    void createsL3NodeWithDefaultStatusNotStarted() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+
+        WbsNode created = wbsNodeService.createNode(project.getId(),
+            new WbsNodeDto.CreateRequest(l2.getId(), null, "登入功能開發", null));
+
+        assertThat(created.getStatus()).isEqualTo(WbsNode.Status.NOT_STARTED);
+    }
+
+    @Test
     void rejectsCreatingChildUnderL3Node() {
         WbsNode l1 = newL1("SIT");
         WbsNode l2 = newL2(l1, "程式開發");
@@ -309,6 +320,26 @@ class WbsNodeServiceTest {
 
         WbsNodeDto.Response l2Response = tree.stream().filter(r -> r.id().equals(l2.getId())).findFirst().orElseThrow();
         assertThat(l2Response.status()).isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void getTreeDoesNotMisclassifyNewL3NodeAsInProgress() {
+        WbsNode l1 = newL1("SIT");
+        WbsNode l2 = newL2(l1, "程式開發");
+
+        // Create L3 via service (which now sets default status to NOT_STARTED)
+        WbsNode l3 = wbsNodeService.createNode(project.getId(),
+            new WbsNodeDto.CreateRequest(l2.getId(), null, "登入功能開發", null));
+
+        List<WbsNodeDto.Response> tree = wbsNodeService.getTree(project.getId());
+
+        // L2's aggregated status should be NOT_STARTED (only child is L3 with NOT_STARTED)
+        WbsNodeDto.Response l2Response = tree.stream().filter(r -> r.id().equals(l2.getId())).findFirst().orElseThrow();
+        assertThat(l2Response.status()).isEqualTo("NOT_STARTED");
+
+        // L1's aggregated status should also be NOT_STARTED
+        WbsNodeDto.Response l1Response = tree.stream().filter(r -> r.id().equals(l1.getId())).findFirst().orElseThrow();
+        assertThat(l1Response.status()).isEqualTo("NOT_STARTED");
     }
 
     @Test

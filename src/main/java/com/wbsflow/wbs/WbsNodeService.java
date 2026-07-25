@@ -46,6 +46,7 @@ public class WbsNodeService {
                 throw new IllegalArgumentException("細項需要標題");
             }
             node.setTitle(req.title());
+            node.setStatus(WbsNode.Status.NOT_STARTED);
         } else {
             if (req.presetId() == null) {
                 throw new IllegalArgumentException("階段/類別需要選擇選單項目");
