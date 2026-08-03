@@ -275,10 +275,11 @@
       async cycleStatus(nodeId) {
         const node = this.nodes.find(n => n.id === nodeId);
         const prev = node.status;
-        node.status = STATUS_CYCLE[prev];
+        const nextStatus = STATUS_CYCLE[prev];
+        node.status = nextStatus;
         await this.queueNodeWrite(nodeId, async () => {
           const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/status`, {
-            method: 'PATCH', body: JSON.stringify({ status: node.status }),
+            method: 'PATCH', body: JSON.stringify({ status: nextStatus }),
           });
           if (!result.success) { node.status = prev; this.showToast(result.message || '狀態更新失敗'); }
         });
