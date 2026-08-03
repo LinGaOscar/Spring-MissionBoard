@@ -33,6 +33,7 @@ public class ProjectController {
         }
         model.addAttribute("projectId", id);
         model.addAttribute("canWrite", projectService.canWrite(id, user));
+        model.addAttribute("sectionId", projectService.getById(id).getSection().getId());
         return "project/detail";
     }
 
