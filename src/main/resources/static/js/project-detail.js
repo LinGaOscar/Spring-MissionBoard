@@ -75,18 +75,45 @@
       canWrite: { type: Boolean, default: false },
       members: { type: Array, default: () => [] },
     },
+    emits: ['cycle-status', 'update-title'],
+    data() {
+      return { editingTitle: false, titleDraft: this.node.title };
+    },
     computed: {
       statusLabel() { return STATUS_LABEL[this.node.status] || ''; },
+    },
+    methods: {
+      onCycleStatus() {
+        if (this.canWrite && this.node.level === 3) this.$emit('cycle-status', this.node.id);
+      },
+      startEditTitle() {
+        if (!this.canWrite) return;
+        this.titleDraft = this.node.title;
+        this.editingTitle = true;
+        this.$nextTick(() => this.$refs.titleInput && this.$refs.titleInput.focus());
+      },
+      commitTitle() {
+        this.editingTitle = false;
+        if (this.titleDraft.trim() && this.titleDraft !== this.node.title) {
+          this.$emit('update-title', this.node.id, this.titleDraft.trim());
+        }
+      },
     },
     template: `
       <div class="wbs-node-row">
         <div class="wbs-node" :style="{ paddingLeft: (depth * 24) + 'px' }">
           <span class="wbs-num">{{ numbering[node.id] }}</span>
-          <span class="wbs-status-badge" :class="'status-' + node.status.toLowerCase()">{{ statusLabel }}</span>
-          <span class="wbs-title">{{ node.title }}</span>
+          <span class="wbs-status-badge" :class="'status-' + node.status.toLowerCase()"
+                :style="{ cursor: (canWrite && node.level === 3) ? 'pointer' : 'default' }"
+                @click="onCycleStatus">{{ statusLabel }}</span>
+          <span v-if="!editingTitle" class="wbs-title" @dblclick="startEditTitle">{{ node.title }}</span>
+          <input v-else ref="titleInput" class="wbs-title-input" v-model="titleDraft"
+                 @blur="commitTitle" @keyup.enter="commitTitle" @keyup.escape="editingTitle=false" />
         </div>
         <wbs-node-row v-for="child in node.children" :key="child.id" :node="child" :numbering="numbering"
-          :depth="depth + 1" :can-write="canWrite" :members="members" />
+          :depth="depth + 1" :can-write="canWrite" :members="members"
+          @cycle-status="$emit('cycle-status', $event)"
+          @update-title="(id, t) => $emit('update-title', id, t)" />
       </div>
     `,
   });
@@ -94,6 +121,7 @@
   const TreeEditorView = defineComponent({
     name: 'TreeEditorView',
     props: { nodes: { type: Array, default: () => [] }, members: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
+    emits: ['cycle-status', 'update-title'],
     computed: {
       tree() { return buildTree(this.nodes); },
       numberingMap() { return numbering(this.tree); },
@@ -111,7 +139,9 @@
         <p class="wbs-stats" v-if="nodes.length">細項總數：{{ stats.total }}，完成率：{{ stats.rate }}%（{{ stats.done }}/{{ stats.total }}）</p>
         <p v-if="nodes.length === 0">此專案尚未建立節點</p>
         <wbs-node-row v-for="root in tree" :key="root.id" :node="root" :numbering="numberingMap"
-          :depth="0" :can-write="canWrite" :members="members" />
+          :depth="0" :can-write="canWrite" :members="members"
+          @cycle-status="$emit('cycle-status', $event)"
+          @update-title="(id, t) => $emit('update-title', id, t)" />
       </div>
     `,
   });
@@ -139,6 +169,24 @@
         clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, 3000);
       },
+      async cycleStatus(nodeId) {
+        const node = this.nodes.find(n => n.id === nodeId);
+        const prev = node.status;
+        node.status = STATUS_CYCLE[prev];
+        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/status`, {
+          method: 'PATCH', body: JSON.stringify({ status: node.status }),
+        });
+        if (!result.success) { node.status = prev; this.showToast(result.message || '狀態更新失敗'); }
+      },
+      async updateTitle(nodeId, title) {
+        const node = this.nodes.find(n => n.id === nodeId);
+        const prev = node.title;
+        node.title = title;
+        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
+          method: 'PUT', body: JSON.stringify({ title, notes: null, priority: null, startDate: null, endDate: null }),
+        });
+        if (!result.success) { node.title = prev; this.showToast(result.message || '標題更新失敗'); }
+      },
     },
     mounted() {
       this.loadAll();
@@ -152,7 +200,8 @@
           <button class="btn" :class="{ 'btn-primary': activeTab==='gantt' }" @click="activeTab='gantt'">甘特</button>
         </div>
         <div v-show="activeTab==='tree'">
-          <tree-editor-view :nodes="nodes" :members="members" :can-write="canWrite" />
+          <tree-editor-view :nodes="nodes" :members="members" :can-write="canWrite"
+            @cycle-status="cycleStatus" @update-title="updateTitle" />
         </div>
         <div v-show="activeTab==='kanban'"><kanban-view :nodes="nodes" :can-write="canWrite" /></div>
         <div v-show="activeTab==='assignment'"><assignment-view :nodes="nodes" :can-write="canWrite" /></div>
