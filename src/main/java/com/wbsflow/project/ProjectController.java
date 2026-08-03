@@ -25,6 +25,17 @@ public class ProjectController {
         return "project/list";
     }
 
+    @GetMapping("/projects/{id}")
+    public String detail(@PathVariable Long id, org.springframework.ui.Model model, Principal principal) {
+        User user = currentUser(principal);
+        if (!projectService.canRead(id, user)) {
+            return "redirect:/projects";
+        }
+        model.addAttribute("projectId", id);
+        model.addAttribute("canWrite", projectService.canWrite(id, user));
+        return "project/detail";
+    }
+
     @GetMapping("/api/projects")
     @ResponseBody
     public ApiResponse<List<ProjectDto.Response>> list(
