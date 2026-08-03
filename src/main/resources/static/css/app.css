@@ -67,3 +67,4 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .wbs-status-badge.status-done { background:#d4efdf; color:#27ae60; }
 .wbs-title { flex:1; min-width:120px; }
 .wbs-title-input { flex:1; min-width:120px; padding:0.2rem 0.4rem; border:1px solid #0984e3; border-radius:4px; }
+.wbs-actions { padding:0.2rem 0 0.4rem 0; }
