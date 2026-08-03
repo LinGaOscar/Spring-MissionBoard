@@ -4,6 +4,7 @@
   const el = document.getElementById('detail-app');
   const projectId = Number(el.dataset.projectId);
   const canWrite = el.dataset.canWrite === 'true';
+  const sectionId = el.dataset.sectionId ? Number(el.dataset.sectionId) : null;
   const csrfToken = document.querySelector('meta[name="_csrf"]').content;
   const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
 
@@ -12,10 +13,18 @@
   const PRIORITY_LABEL = { HIGH: '高', MEDIUM: '中', LOW: '低' };
 
   async function api(url, options = {}) {
-    const headers = { [csrfHeader]: csrfToken };
-    if (options.body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(url, { ...options, headers: { ...headers, ...(options.headers || {}) } });
-    return res.json();
+    // fetch 失敗（斷線）或伺服器回傳非 JSON（如 CSRF 過期時的 HTML 錯誤頁）都會在此拋出例外；
+    // 若不攔截，樂觀更新永遠不會回滾、也不會跳 toast，使用者會誤以為變更已儲存。
+    // 注意：後端錯誤（400/403/404）本來就會回傳含 message 的 JSON（GlobalExceptionHandler），
+    // 所以這裡不能用 res.ok 短路，仍要嘗試解析 JSON，只有解析本身失敗才視為網路錯誤。
+    try {
+      const headers = { [csrfHeader]: csrfToken };
+      if (options.body) headers['Content-Type'] = 'application/json';
+      const res = await fetch(url, { ...options, headers: { ...headers, ...(options.headers || {}) } });
+      return await res.json();
+    } catch (e) {
+      return { success: false, message: '網路錯誤，請稍後再試' };
+    }
   }
 
   function buildTree(flatNodes) {
@@ -74,8 +83,9 @@
       depth: { type: Number, default: 0 },
       canWrite: { type: Boolean, default: false },
       members: { type: Array, default: () => [] },
+      sectionId: { type: Number, default: null },
     },
-    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node'],
+    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node', 'show-toast'],
     data() {
       return {
         editingTitle: false, titleDraft: this.node.title,
@@ -105,7 +115,10 @@
         this.showAddForm = true;
         this.addTitle = ''; this.addPresetId = '';
         if (this.node.level === 1) {
-          const res = await api('/api/presets?type=CATEGORY');
+          // 不帶 sectionId 後端會用「呼叫者所屬科別」預設，但節點建立驗證是比對「專案所屬科別」；
+          // 跨科成員（PROJECT_MEMBER 可寫但科別不同）會看到錯誤選單、送出時被拒，故明確帶入專案的 sectionId
+          const query = this.sectionId != null ? `&sectionId=${this.sectionId}` : '';
+          const res = await api(`/api/presets?type=CATEGORY${query}`);
           this.categoryPresets = res.success ? res.data : [];
         }
       },
@@ -124,10 +137,26 @@
         this.$emit('update-assignee', this.node.id, val);
       },
       onPriorityChange(e) {
-        this.$emit('update-priority', this.node.id, e.target.value || null);
+        // 後端 updateNode 是 null 容忍的部分更新，收到 null 只會「不動」而非「清除」，
+        // 送出清除值只會讓畫面顯示已清除但實際仍是舊值；因此清空選項時直接還原畫面、提示改選，不送出請求
+        const val = e.target.value;
+        if (!val) {
+          e.target.value = this.node.priority || '';
+          this.$emit('show-toast', '此欄位目前不支援清除，請改選其他值');
+          return;
+        }
+        this.$emit('update-priority', this.node.id, val);
       },
-      onDatesChange() {
-        this.$emit('update-dates', this.node.id, { startDate: this.node.startDate, endDate: this.node.endDate });
+      onDateChange(field, e) {
+        const val = e.target.value;
+        if (!val) {
+          e.target.value = this.node[field] || '';
+          this.$emit('show-toast', '此欄位目前不支援清除，請改選其他值');
+          return;
+        }
+        const dates = { startDate: this.node.startDate, endDate: this.node.endDate };
+        dates[field] = val;
+        this.$emit('update-dates', this.node.id, dates);
       },
       onMoveUp() { this.$emit('move-node', this.node.id, 'up'); },
       onMoveDown() { this.$emit('move-node', this.node.id, 'down'); },
@@ -159,8 +188,8 @@
               <option value="MEDIUM">中</option>
               <option value="LOW">低</option>
             </select>
-            <input type="date" class="wbs-field-input" :disabled="!canWrite" v-model="node.startDate" @change="onDatesChange" />
-            <input type="date" class="wbs-field-input" :disabled="!canWrite" v-model="node.endDate" @change="onDatesChange" />
+            <input type="date" class="wbs-field-input" :disabled="!canWrite" :value="node.startDate" @change="onDateChange('startDate', $event)" />
+            <input type="date" class="wbs-field-input" :disabled="!canWrite" :value="node.endDate" @change="onDateChange('endDate', $event)" />
           </template>
         </div>
         <div class="wbs-actions" v-if="canWrite">
@@ -190,7 +219,7 @@
           </div>
         </div>
         <wbs-node-row v-for="child in node.children" :key="child.id" :node="child" :numbering="numbering"
-          :depth="depth + 1" :can-write="canWrite" :members="members"
+          :depth="depth + 1" :can-write="canWrite" :members="members" :section-id="sectionId"
           @cycle-status="$emit('cycle-status', $event)"
           @update-title="(id, t) => $emit('update-title', id, t)"
           @create-node="$emit('create-node', $event)"
@@ -198,15 +227,20 @@
           @update-priority="(id, p) => $emit('update-priority', id, p)"
           @update-dates="(id, d) => $emit('update-dates', id, d)"
           @move-node="(id, dir) => $emit('move-node', id, dir)"
-          @delete-node="$emit('delete-node', $event)" />
+          @delete-node="$emit('delete-node', $event)"
+          @show-toast="$emit('show-toast', $event)" />
       </div>
     `,
   });
 
   const TreeEditorView = defineComponent({
     name: 'TreeEditorView',
-    props: { nodes: { type: Array, default: () => [] }, members: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
-    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node'],
+    props: {
+      nodes: { type: Array, default: () => [] }, members: { type: Array, default: () => [] },
+      canWrite: { type: Boolean, default: false }, loading: { type: Boolean, default: false },
+      sectionId: { type: Number, default: null },
+    },
+    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node', 'show-toast'],
     computed: {
       tree() { return buildTree(this.nodes); },
       numberingMap() { return numbering(this.tree); },
@@ -222,20 +256,24 @@
       <div class="wbs-tree-editor">
         <div class="page-header">
           <h2>樹編輯器</h2>
-          <button v-if="canWrite && nodes.length === 0" class="btn btn-primary" @click="$emit('init-stages')">初始化階段骨架</button>
+          <button v-if="canWrite && !loading && nodes.length === 0" class="btn btn-primary" @click="$emit('init-stages')">初始化階段骨架</button>
         </div>
-        <p class="wbs-stats" v-if="nodes.length">細項總數：{{ stats.total }}，完成率：{{ stats.rate }}%（{{ stats.done }}/{{ stats.total }}）</p>
-        <p v-if="nodes.length === 0">此專案尚未建立節點</p>
-        <wbs-node-row v-for="root in tree" :key="root.id" :node="root" :numbering="numberingMap"
-          :depth="0" :can-write="canWrite" :members="members"
-          @cycle-status="$emit('cycle-status', $event)"
-          @update-title="(id, t) => $emit('update-title', id, t)"
-          @create-node="$emit('create-node', $event)"
-          @update-assignee="(id, a) => $emit('update-assignee', id, a)"
-          @update-priority="(id, p) => $emit('update-priority', id, p)"
-          @update-dates="(id, d) => $emit('update-dates', id, d)"
-          @move-node="(id, dir) => $emit('move-node', id, dir)"
-          @delete-node="$emit('delete-node', $event)" />
+        <p v-if="loading">載入中...</p>
+        <template v-else>
+          <p class="wbs-stats" v-if="nodes.length">細項總數：{{ stats.total }}，完成率：{{ stats.rate }}%（{{ stats.done }}/{{ stats.total }}）</p>
+          <p v-if="nodes.length === 0">此專案尚未建立節點</p>
+          <wbs-node-row v-for="root in tree" :key="root.id" :node="root" :numbering="numberingMap"
+            :depth="0" :can-write="canWrite" :members="members" :section-id="sectionId"
+            @cycle-status="$emit('cycle-status', $event)"
+            @update-title="(id, t) => $emit('update-title', id, t)"
+            @create-node="$emit('create-node', $event)"
+            @update-assignee="(id, a) => $emit('update-assignee', id, a)"
+            @update-priority="(id, p) => $emit('update-priority', id, p)"
+            @update-dates="(id, d) => $emit('update-dates', id, d)"
+            @move-node="(id, dir) => $emit('move-node', id, dir)"
+            @delete-node="$emit('delete-node', $event)"
+            @show-toast="$emit('show-toast', $event)" />
+        </template>
       </div>
     `,
   });
@@ -243,8 +281,9 @@
   const app = createApp({
     data() {
       return {
-        projectId, canWrite,
+        projectId, canWrite, sectionId,
         nodes: [], members: [],
+        loading: true,
         activeTab: 'tree',
         toastMessage: '', toastTimer: null,
         nodeWriteQueue: {},  // 同一節點的連續寫入序列化：後端 PUT/PATCH 各自整筆存檔、無版本鎖，若兩筆改同節點的請求並發送出，
@@ -254,12 +293,22 @@
     },
     methods: {
       async loadAll() {
-        const [nodesRes, membersRes] = await Promise.all([
-          api(`/api/projects/${this.projectId}/nodes`),
-          api(`/api/projects/${this.projectId}/members`),
-        ]);
-        this.nodes = nodesRes.success ? nodesRes.data : [];
-        this.members = membersRes.success ? membersRes.data : [];
+        this.loading = true;
+        try {
+          const [nodesRes, membersRes] = await Promise.all([
+            api(`/api/projects/${this.projectId}/nodes`),
+            api(`/api/projects/${this.projectId}/members`),
+          ]);
+          this.nodes = nodesRes.success ? nodesRes.data : [];
+          this.members = membersRes.success ? membersRes.data : [];
+          if (!nodesRes.success || !membersRes.success) {
+            this.showToast(nodesRes.message || membersRes.message || '載入失敗，請重新整理');
+          }
+        } catch (e) {
+          this.showToast('載入失敗，請重新整理');
+        } finally {
+          this.loading = false;
+        }
       },
       showToast(message) {
         this.toastMessage = message;
@@ -348,13 +397,15 @@
         const idx = siblings.findIndex(n => n.id === nodeId);
         const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
         if (swapIdx < 0 || swapIdx >= siblings.length) return;
-        const a = siblings[idx], b = siblings[swapIdx];
+        // 交換陣列中的位置後，整批同層節點依新順序重新編號 0..n-1 送出，
+        // 而非只交換兩者的 sortOrder：若既有資料 sortOrder 重複（如皆為 0），
+        // 純交換會產生相同 payload，Hibernate 髒檢查判斷無變化而不送出 UPDATE，
+        // 導致移動操作無聲失效；全量重編號同時能自我修復既有的重複值。
+        [siblings[idx], siblings[swapIdx]] = [siblings[swapIdx], siblings[idx]];
+        const payload = siblings.map((n, i) => ({ nodeId: n.id, parentId: n.parentId, sortOrder: i }));
         const result = await api(`/api/projects/${this.projectId}/nodes/reorder`, {
           method: 'PATCH',
-          body: JSON.stringify([
-            { nodeId: a.id, parentId: a.parentId, sortOrder: b.sortOrder },
-            { nodeId: b.id, parentId: b.parentId, sortOrder: a.sortOrder },
-          ]),
+          body: JSON.stringify(payload),
         });
         if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '排序失敗'); }
       },
@@ -375,11 +426,11 @@
           <button class="btn" :class="{ 'btn-primary': activeTab==='gantt' }" @click="activeTab='gantt'">甘特</button>
         </div>
         <div v-show="activeTab==='tree'">
-          <tree-editor-view :nodes="nodes" :members="members" :can-write="canWrite"
+          <tree-editor-view :nodes="nodes" :members="members" :can-write="canWrite" :loading="loading" :section-id="sectionId"
             @cycle-status="cycleStatus" @update-title="updateTitle"
             @create-node="createNode" @init-stages="initStages"
             @update-assignee="updateAssignee" @update-priority="updatePriority" @update-dates="updateDates"
-            @move-node="moveNode" @delete-node="deleteNode" />
+            @move-node="moveNode" @delete-node="deleteNode" @show-toast="showToast" />
         </div>
         <div v-show="activeTab==='kanban'"><kanban-view :nodes="nodes" :can-write="canWrite" /></div>
         <div v-show="activeTab==='assignment'"><assignment-view :nodes="nodes" :can-write="canWrite" /></div>
