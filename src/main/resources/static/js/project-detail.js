@@ -75,7 +75,7 @@
       canWrite: { type: Boolean, default: false },
       members: { type: Array, default: () => [] },
     },
-    emits: ['cycle-status', 'update-title', 'create-node'],
+    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates'],
     data() {
       return {
         editingTitle: false, titleDraft: this.node.title,
@@ -119,6 +119,16 @@
         }
         this.showAddForm = false;
       },
+      onAssigneeChange(e) {
+        const val = e.target.value ? Number(e.target.value) : null;
+        this.$emit('update-assignee', this.node.id, val);
+      },
+      onPriorityChange(e) {
+        this.$emit('update-priority', this.node.id, e.target.value || null);
+      },
+      onDatesChange() {
+        this.$emit('update-dates', this.node.id, { startDate: this.node.startDate, endDate: this.node.endDate });
+      },
     },
     template: `
       <div class="wbs-node-row">
@@ -130,6 +140,20 @@
           <span v-if="!editingTitle" class="wbs-title" @dblclick="startEditTitle">{{ node.title }}</span>
           <input v-else ref="titleInput" class="wbs-title-input" v-model="titleDraft"
                  @blur="commitTitle" @keyup.enter="commitTitle" @keyup.escape="editingTitle=false" />
+          <template v-if="node.level === 3">
+            <select class="wbs-field-input" :disabled="!canWrite" :value="node.assigneeId || ''" @change="onAssigneeChange">
+              <option value="">未指派</option>
+              <option v-for="m in members" :key="m.userId" :value="m.userId">{{ m.displayName }}</option>
+            </select>
+            <select class="wbs-field-input" :disabled="!canWrite" :value="node.priority || ''" @change="onPriorityChange">
+              <option value="">優先度</option>
+              <option value="HIGH">高</option>
+              <option value="MEDIUM">中</option>
+              <option value="LOW">低</option>
+            </select>
+            <input type="date" class="wbs-field-input" :disabled="!canWrite" v-model="node.startDate" @change="onDatesChange" />
+            <input type="date" class="wbs-field-input" :disabled="!canWrite" v-model="node.endDate" @change="onDatesChange" />
+          </template>
         </div>
         <div class="wbs-actions" v-if="canWrite && node.level < 3">
           <button class="btn btn-sm" @click="openAddForm">{{ node.level === 1 ? '新增類別' : '新增細項' }}</button>
@@ -158,7 +182,10 @@
           :depth="depth + 1" :can-write="canWrite" :members="members"
           @cycle-status="$emit('cycle-status', $event)"
           @update-title="(id, t) => $emit('update-title', id, t)"
-          @create-node="$emit('create-node', $event)" />
+          @create-node="$emit('create-node', $event)"
+          @update-assignee="(id, a) => $emit('update-assignee', id, a)"
+          @update-priority="(id, p) => $emit('update-priority', id, p)"
+          @update-dates="(id, d) => $emit('update-dates', id, d)" />
       </div>
     `,
   });
@@ -166,7 +193,7 @@
   const TreeEditorView = defineComponent({
     name: 'TreeEditorView',
     props: { nodes: { type: Array, default: () => [] }, members: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
-    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages'],
+    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates'],
     computed: {
       tree() { return buildTree(this.nodes); },
       numberingMap() { return numbering(this.tree); },
@@ -190,7 +217,10 @@
           :depth="0" :can-write="canWrite" :members="members"
           @cycle-status="$emit('cycle-status', $event)"
           @update-title="(id, t) => $emit('update-title', id, t)"
-          @create-node="$emit('create-node', $event)" />
+          @create-node="$emit('create-node', $event)"
+          @update-assignee="(id, a) => $emit('update-assignee', id, a)"
+          @update-priority="(id, p) => $emit('update-priority', id, p)"
+          @update-dates="(id, d) => $emit('update-dates', id, d)" />
       </div>
     `,
   });
@@ -236,6 +266,35 @@
         });
         if (!result.success) { node.title = prev; this.showToast(result.message || '標題更新失敗'); }
       },
+      async updateAssignee(nodeId, assigneeId) {
+        const node = this.nodes.find(n => n.id === nodeId);
+        const prevId = node.assigneeId, prevName = node.assigneeDisplayName;
+        node.assigneeId = assigneeId;
+        const member = this.members.find(m => m.userId === assigneeId);
+        node.assigneeDisplayName = member ? member.displayName : null;
+        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/assignee`, {
+          method: 'PATCH', body: JSON.stringify({ assigneeId }),
+        });
+        if (!result.success) { node.assigneeId = prevId; node.assigneeDisplayName = prevName; this.showToast(result.message || '指派失敗'); }
+      },
+      async updatePriority(nodeId, priority) {
+        const node = this.nodes.find(n => n.id === nodeId);
+        const prev = node.priority;
+        node.priority = priority;
+        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
+          method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority, startDate: null, endDate: null }),
+        });
+        if (!result.success) { node.priority = prev; this.showToast(result.message || '優先度更新失敗'); }
+      },
+      async updateDates(nodeId, dates) {
+        const node = this.nodes.find(n => n.id === nodeId);
+        const prevStart = node.startDate, prevEnd = node.endDate;
+        node.startDate = dates.startDate; node.endDate = dates.endDate;
+        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
+          method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority: null, startDate: dates.startDate, endDate: dates.endDate }),
+        });
+        if (!result.success) { node.startDate = prevStart; node.endDate = prevEnd; this.showToast(result.message || '日期更新失敗'); }
+      },
       async createNode(payload) {
         const result = await api(`/api/projects/${this.projectId}/nodes`, {
           method: 'POST', body: JSON.stringify(payload),
@@ -261,7 +320,8 @@
         <div v-show="activeTab==='tree'">
           <tree-editor-view :nodes="nodes" :members="members" :can-write="canWrite"
             @cycle-status="cycleStatus" @update-title="updateTitle"
-            @create-node="createNode" @init-stages="initStages" />
+            @create-node="createNode" @init-stages="initStages"
+            @update-assignee="updateAssignee" @update-priority="updatePriority" @update-dates="updateDates" />
         </div>
         <div v-show="activeTab==='kanban'"><kanban-view :nodes="nodes" :can-write="canWrite" /></div>
         <div v-show="activeTab==='assignment'"><assignment-view :nodes="nodes" :can-write="canWrite" /></div>
