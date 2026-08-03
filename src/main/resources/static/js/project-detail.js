@@ -75,7 +75,7 @@
       canWrite: { type: Boolean, default: false },
       members: { type: Array, default: () => [] },
     },
-    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates', 'move-node'],
+    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node'],
     data() {
       return {
         editingTitle: false, titleDraft: this.node.title,
@@ -131,6 +131,12 @@
       },
       onMoveUp() { this.$emit('move-node', this.node.id, 'up'); },
       onMoveDown() { this.$emit('move-node', this.node.id, 'down'); },
+      onDelete() {
+        const msg = this.node.children.length
+          ? `確定刪除「${this.node.title}」？將一併刪除其下所有子節點。`
+          : `確定刪除「${this.node.title}」？`;
+        if (confirm(msg)) this.$emit('delete-node', this.node.id);
+      },
     },
     template: `
       <div class="wbs-node-row">
@@ -161,6 +167,7 @@
           <button class="btn btn-sm" @click="onMoveUp">↑</button>
           <button class="btn btn-sm" @click="onMoveDown">↓</button>
           <button class="btn btn-sm" v-if="node.level < 3" @click="openAddForm">{{ node.level === 1 ? '新增類別' : '新增細項' }}</button>
+          <button class="btn btn-sm btn-danger" @click="onDelete">刪除</button>
         </div>
         <div v-if="showAddForm" class="modal-overlay" @click.self="showAddForm=false">
           <div class="modal">
@@ -190,7 +197,8 @@
           @update-assignee="(id, a) => $emit('update-assignee', id, a)"
           @update-priority="(id, p) => $emit('update-priority', id, p)"
           @update-dates="(id, d) => $emit('update-dates', id, d)"
-          @move-node="(id, dir) => $emit('move-node', id, dir)" />
+          @move-node="(id, dir) => $emit('move-node', id, dir)"
+          @delete-node="$emit('delete-node', $event)" />
       </div>
     `,
   });
@@ -198,7 +206,7 @@
   const TreeEditorView = defineComponent({
     name: 'TreeEditorView',
     props: { nodes: { type: Array, default: () => [] }, members: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
-    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates', 'move-node'],
+    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node'],
     computed: {
       tree() { return buildTree(this.nodes); },
       numberingMap() { return numbering(this.tree); },
@@ -226,7 +234,8 @@
           @update-assignee="(id, a) => $emit('update-assignee', id, a)"
           @update-priority="(id, p) => $emit('update-priority', id, p)"
           @update-dates="(id, d) => $emit('update-dates', id, d)"
-          @move-node="(id, dir) => $emit('move-node', id, dir)" />
+          @move-node="(id, dir) => $emit('move-node', id, dir)"
+          @delete-node="$emit('delete-node', $event)" />
       </div>
     `,
   });
@@ -329,6 +338,10 @@
         });
         if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '排序失敗'); }
       },
+      async deleteNode(nodeId) {
+        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, { method: 'DELETE' });
+        if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '刪除失敗'); }
+      },
     },
     mounted() {
       this.loadAll();
@@ -346,7 +359,7 @@
             @cycle-status="cycleStatus" @update-title="updateTitle"
             @create-node="createNode" @init-stages="initStages"
             @update-assignee="updateAssignee" @update-priority="updatePriority" @update-dates="updateDates"
-            @move-node="moveNode" />
+            @move-node="moveNode" @delete-node="deleteNode" />
         </div>
         <div v-show="activeTab==='kanban'"><kanban-view :nodes="nodes" :can-write="canWrite" /></div>
         <div v-show="activeTab==='assignment'"><assignment-view :nodes="nodes" :can-write="canWrite" /></div>
