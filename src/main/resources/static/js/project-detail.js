@@ -75,7 +75,7 @@
       canWrite: { type: Boolean, default: false },
       members: { type: Array, default: () => [] },
     },
-    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates'],
+    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates', 'move-node'],
     data() {
       return {
         editingTitle: false, titleDraft: this.node.title,
@@ -129,6 +129,8 @@
       onDatesChange() {
         this.$emit('update-dates', this.node.id, { startDate: this.node.startDate, endDate: this.node.endDate });
       },
+      onMoveUp() { this.$emit('move-node', this.node.id, 'up'); },
+      onMoveDown() { this.$emit('move-node', this.node.id, 'down'); },
     },
     template: `
       <div class="wbs-node-row">
@@ -155,8 +157,10 @@
             <input type="date" class="wbs-field-input" :disabled="!canWrite" v-model="node.endDate" @change="onDatesChange" />
           </template>
         </div>
-        <div class="wbs-actions" v-if="canWrite && node.level < 3">
-          <button class="btn btn-sm" @click="openAddForm">{{ node.level === 1 ? '新增類別' : '新增細項' }}</button>
+        <div class="wbs-actions" v-if="canWrite">
+          <button class="btn btn-sm" @click="onMoveUp">↑</button>
+          <button class="btn btn-sm" @click="onMoveDown">↓</button>
+          <button class="btn btn-sm" v-if="node.level < 3" @click="openAddForm">{{ node.level === 1 ? '新增類別' : '新增細項' }}</button>
         </div>
         <div v-if="showAddForm" class="modal-overlay" @click.self="showAddForm=false">
           <div class="modal">
@@ -185,7 +189,8 @@
           @create-node="$emit('create-node', $event)"
           @update-assignee="(id, a) => $emit('update-assignee', id, a)"
           @update-priority="(id, p) => $emit('update-priority', id, p)"
-          @update-dates="(id, d) => $emit('update-dates', id, d)" />
+          @update-dates="(id, d) => $emit('update-dates', id, d)"
+          @move-node="(id, dir) => $emit('move-node', id, dir)" />
       </div>
     `,
   });
@@ -193,7 +198,7 @@
   const TreeEditorView = defineComponent({
     name: 'TreeEditorView',
     props: { nodes: { type: Array, default: () => [] }, members: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
-    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates'],
+    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates', 'move-node'],
     computed: {
       tree() { return buildTree(this.nodes); },
       numberingMap() { return numbering(this.tree); },
@@ -220,7 +225,8 @@
           @create-node="$emit('create-node', $event)"
           @update-assignee="(id, a) => $emit('update-assignee', id, a)"
           @update-priority="(id, p) => $emit('update-priority', id, p)"
-          @update-dates="(id, d) => $emit('update-dates', id, d)" />
+          @update-dates="(id, d) => $emit('update-dates', id, d)"
+          @move-node="(id, dir) => $emit('move-node', id, dir)" />
       </div>
     `,
   });
@@ -305,6 +311,24 @@
         const result = await api(`/api/projects/${this.projectId}/nodes/init`, { method: 'POST' });
         if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '初始化失敗'); }
       },
+      async moveNode(nodeId, direction) {
+        const current = this.nodes.find(n => n.id === nodeId);
+        const siblings = this.nodes
+          .filter(n => n.parentId === current.parentId)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        const idx = siblings.findIndex(n => n.id === nodeId);
+        const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+        if (swapIdx < 0 || swapIdx >= siblings.length) return;
+        const a = siblings[idx], b = siblings[swapIdx];
+        const result = await api(`/api/projects/${this.projectId}/nodes/reorder`, {
+          method: 'PATCH',
+          body: JSON.stringify([
+            { nodeId: a.id, parentId: a.parentId, sortOrder: b.sortOrder },
+            { nodeId: b.id, parentId: b.parentId, sortOrder: a.sortOrder },
+          ]),
+        });
+        if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '排序失敗'); }
+      },
     },
     mounted() {
       this.loadAll();
@@ -321,7 +345,8 @@
           <tree-editor-view :nodes="nodes" :members="members" :can-write="canWrite"
             @cycle-status="cycleStatus" @update-title="updateTitle"
             @create-node="createNode" @init-stages="initStages"
-            @update-assignee="updateAssignee" @update-priority="updatePriority" @update-dates="updateDates" />
+            @update-assignee="updateAssignee" @update-priority="updatePriority" @update-dates="updateDates"
+            @move-node="moveNode" />
         </div>
         <div v-show="activeTab==='kanban'"><kanban-view :nodes="nodes" :can-write="canWrite" /></div>
         <div v-show="activeTab==='assignment'"><assignment-view :nodes="nodes" :can-write="canWrite" /></div>
