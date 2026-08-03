@@ -28,8 +28,10 @@
         return;
       }
       body.data.forEach(function (project) {
-        var card = document.createElement('div');
+        // 卡片本身就是連結，維持與檔案其他部分一致的 DOM API 組裝方式（不用 innerHTML，避免專案名稱夾帶 XSS）
+        var card = document.createElement('a');
         card.className = 'project-card';
+        card.href = '/projects/' + project.id;
 
         var name = document.createElement('div');
         name.className = 'project-card-name';
