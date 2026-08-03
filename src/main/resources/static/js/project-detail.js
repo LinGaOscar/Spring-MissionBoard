@@ -247,6 +247,9 @@
         nodes: [], members: [],
         activeTab: 'tree',
         toastMessage: '', toastTimer: null,
+        nodeWriteQueue: {},  // 同一節點的連續寫入序列化：後端 PUT/PATCH 各自整筆存檔、無版本鎖，若兩筆改同節點的請求並發送出，
+                             // 完成順序不保證與送出順序一致，先送出但後完成者會用舊快照蓋掉後送出者剛存好的欄位（遺失更新）；
+                             // 排隊等前一筆真正完成再送下一筆，可確保同節點寫入嚴格依序執行
       };
     },
     methods: {
@@ -263,23 +266,33 @@
         clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, 3000);
       },
+      queueNodeWrite(nodeId, task) {
+        const prev = this.nodeWriteQueue[nodeId] || Promise.resolve();
+        const next = prev.then(task, task);
+        this.nodeWriteQueue[nodeId] = next;
+        return next;
+      },
       async cycleStatus(nodeId) {
         const node = this.nodes.find(n => n.id === nodeId);
         const prev = node.status;
         node.status = STATUS_CYCLE[prev];
-        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/status`, {
-          method: 'PATCH', body: JSON.stringify({ status: node.status }),
+        await this.queueNodeWrite(nodeId, async () => {
+          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/status`, {
+            method: 'PATCH', body: JSON.stringify({ status: node.status }),
+          });
+          if (!result.success) { node.status = prev; this.showToast(result.message || '狀態更新失敗'); }
         });
-        if (!result.success) { node.status = prev; this.showToast(result.message || '狀態更新失敗'); }
       },
       async updateTitle(nodeId, title) {
         const node = this.nodes.find(n => n.id === nodeId);
         const prev = node.title;
         node.title = title;
-        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
-          method: 'PUT', body: JSON.stringify({ title, notes: null, priority: null, startDate: null, endDate: null }),
+        await this.queueNodeWrite(nodeId, async () => {
+          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
+            method: 'PUT', body: JSON.stringify({ title, notes: null, priority: null, startDate: null, endDate: null }),
+          });
+          if (!result.success) { node.title = prev; this.showToast(result.message || '標題更新失敗'); }
         });
-        if (!result.success) { node.title = prev; this.showToast(result.message || '標題更新失敗'); }
       },
       async updateAssignee(nodeId, assigneeId) {
         const node = this.nodes.find(n => n.id === nodeId);
@@ -287,28 +300,34 @@
         node.assigneeId = assigneeId;
         const member = this.members.find(m => m.userId === assigneeId);
         node.assigneeDisplayName = member ? member.displayName : null;
-        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/assignee`, {
-          method: 'PATCH', body: JSON.stringify({ assigneeId }),
+        await this.queueNodeWrite(nodeId, async () => {
+          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/assignee`, {
+            method: 'PATCH', body: JSON.stringify({ assigneeId }),
+          });
+          if (!result.success) { node.assigneeId = prevId; node.assigneeDisplayName = prevName; this.showToast(result.message || '指派失敗'); }
         });
-        if (!result.success) { node.assigneeId = prevId; node.assigneeDisplayName = prevName; this.showToast(result.message || '指派失敗'); }
       },
       async updatePriority(nodeId, priority) {
         const node = this.nodes.find(n => n.id === nodeId);
         const prev = node.priority;
         node.priority = priority;
-        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
-          method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority, startDate: null, endDate: null }),
+        await this.queueNodeWrite(nodeId, async () => {
+          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
+            method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority, startDate: null, endDate: null }),
+          });
+          if (!result.success) { node.priority = prev; this.showToast(result.message || '優先度更新失敗'); }
         });
-        if (!result.success) { node.priority = prev; this.showToast(result.message || '優先度更新失敗'); }
       },
       async updateDates(nodeId, dates) {
         const node = this.nodes.find(n => n.id === nodeId);
         const prevStart = node.startDate, prevEnd = node.endDate;
         node.startDate = dates.startDate; node.endDate = dates.endDate;
-        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
-          method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority: null, startDate: dates.startDate, endDate: dates.endDate }),
+        await this.queueNodeWrite(nodeId, async () => {
+          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
+            method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority: null, startDate: dates.startDate, endDate: dates.endDate }),
+          });
+          if (!result.success) { node.startDate = prevStart; node.endDate = prevEnd; this.showToast(result.message || '日期更新失敗'); }
         });
-        if (!result.success) { node.startDate = prevStart; node.endDate = prevEnd; this.showToast(result.message || '日期更新失敗'); }
       },
       async createNode(payload) {
         const result = await api(`/api/projects/${this.projectId}/nodes`, {
