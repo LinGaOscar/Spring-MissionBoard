@@ -2,14 +2,14 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_DB: wbsflow
-      POSTGRES_USER: wbsflow
+      POSTGRES_DB: missionboard
+      POSTGRES_USER: missionboard
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./sql:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wbsflow -d wbsflow"]
+      test: ["CMD-SHELL", "pg_isready -U missionboard -d missionboard"]
       interval: 10s
       timeout: 5s
       retries: 10

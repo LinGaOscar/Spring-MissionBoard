@@ -1,4 +1,4 @@
--- Spring-WbsFlow schema
+-- Spring-MissionBoard schema
 -- 手寫 DDL，ddl-auto: none，不使用 Flyway / Liquibase
 
 -- ============================================================
