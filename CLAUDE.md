@@ -4,9 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案狀態
 
-**骨架已建立，功能尚未實作。** 唯一的真相來源是 `docs/superpowers/specs/2026-07-17-wbsflow-design.md`——動手前先讀它；本檔僅摘錄關鍵決策。
-已完成：docker-compose（PostgreSQL 16）、`sql/` 初始 DDL＋測試帳號種子、可開機的最小 Spring Boot 骨架（無業務邏輯）、Vue 3 離線版 vendor 檔案。
-尚未實作：所有 Entity/Repository/Service/Controller、Spring Security 表單登入設定、前端四檢視頁面。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
+**核心骨幹已實作，仍在現行「WBS 樹狀規劃」模型上。** 現行架構的真相來源是 `docs/superpowers/specs/2026-07-17-wbsflow-design.md`；動手前先讀它，本檔僅摘錄關鍵決策。
+
+已完成（子專案 A-D）：`department`/`user`/`project` 資料層與權限核心（`ProjectService.canRead/canWrite/canArchive`）、Spring Security 表單登入（`auth/SecurityConfig`＋`CustomUserDetailsService`）、專案管理 CRUD＋成員管理、`wbs` 套件的節點 CRUD／reorder／狀態循環／指派＋樹編輯器前端（`project-detail.js` 的 `TreeEditorView`）。
+**看板／人員派工／甘特三個分頁目前只是前端佔位符**（`KanbanView`/`AssignmentView`/`GanttView`，皆顯示「開發中」），無實際功能。
+
+**待決的重大轉向（尚未動手）**：`docs/superpowers/specs/2026-08-08-missionboard-task-oriented-rewrite-design.md` 規劃把資料模型整個反過來——`wbs_nodes` 三層樹改為天生扁平獨立的 `tasks`＋選配兩層的 `task_categories`，看板變預設首頁，樹編輯器／人員派工／甘特三分頁本輪先移除。**此設計文件尚未實作，目前程式碼與 DB schema 仍是舊的 `wbs_nodes` 模型**（`sql/01_ddl.sql` 仍是 `wbs_nodes`/`wbs_presets`，無 `tasks`/`task_categories` 表）。若被要求接續這個重構，先讀該設計文件全文再動手；若只是在現行模型上修 bug 或加小功能，仍以 2026-07-17 的設計文件與下方「核心架構決策」為準。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
 
 ## 專案定位
 
@@ -72,6 +75,8 @@ mvn test -Dtest=ClassName#methodName
 
 專案詳情頁一次載入 `GET .../nodes`，四個 tab 共用同一份響應式資料；所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）。甘特為純 SVG 唯讀，無依賴線（YAGNI，v2 再議）。
 
+**目前僅樹編輯器分頁（`project-detail.js` 的 `TreeEditorView`）落實上述模式**；`KanbanView`/`AssignmentView`/`GanttView` 是顯示「開發中」的佔位元件，尚無資料綁定或互動邏輯。
+
 ## 測試重點
 
 權限矩陣（4 角色 × 讀／寫／封存）、三層深度上限、「僅 L3 可派工／可設狀態」約束、父層彙總邏輯、reorder 跨父搬移、移除成員解除指派。
@@ -89,5 +94,5 @@ mvn test -Dtest=ClassName#methodName
 ## 開發注意事項
 
 - pom.xml 依 Spring-TaskFlow / Spring-WbsScaff 慣例調整（`mssql-jdbc` → `org.postgresql:postgresql`），dependency 座標與版本沿用兩舊專案已驗證組合（Spring Boot 3.4.0、Java 21、`spring-dotenv:4.0.0`、`poi-ooxml:5.3.0`）
-- `spring-boot-starter-security` 已在 classpath 但尚無自訂 `SecurityConfig`，目前為 Spring Boot 預設表單登入（隨機產生密碼，見開機日誌）；實作登入功能時務必加上自訂 `SecurityConfig` + `CustomUserDetailsService`，否則測試帳號無法登入
+- 表單登入已實作於 `auth/SecurityConfig.java` + `auth/CustomUserDetailsService.java`：登入頁 `/login`、登入處理 `/auth/login`、成功導向 `/home`；`/api/**` 未登入回 401 JSON（自訂 `AuthenticationEntryPoint`），其餘路徑未登入導向 `/login`；BCrypt 加密
 - Spring Session JDBC 的 `SPRING_SESSION`/`SPRING_SESSION_ATTRIBUTES` 表由 `spring.session.jdbc.initialize-schema: always` 在應用啟動時自動建立，`sql/01_ddl.sql` 不需手寫
