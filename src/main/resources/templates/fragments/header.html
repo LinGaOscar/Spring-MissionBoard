@@ -7,7 +7,7 @@
   <meta name="_csrf_header" th:content="${_csrf.headerName}"/>
   <nav class="navbar">
     <div class="navbar-brand">
-      <a th:href="@{/home}">WBS 管理系統</a>
+      <a th:href="@{/home}">MissionBoard 任務管理系統</a>
     </div>
     <div class="navbar-user" sec:authorize="isAuthenticated()">
       <span sec:authentication="principal.username"></span>

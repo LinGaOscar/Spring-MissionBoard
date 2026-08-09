@@ -2,12 +2,12 @@
 <html xmlns:th="http://www.thymeleaf.org" lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>登入 - WBS 管理系統</title>
+  <title>登入 - MissionBoard 任務管理系統</title>
   <link rel="stylesheet" th:href="@{/css/app.css}">
 </head>
 <body class="login-page">
 <div class="login-box">
-  <h1>WBS 管理系統</h1>
+  <h1>MissionBoard 任務管理系統</h1>
   <div th:if="${param.error}" class="alert alert-error">帳號或密碼錯誤</div>
   <div th:if="${param.logout}" class="alert alert-info">已成功登出</div>
   <form th:action="@{/auth/login}" method="post">
