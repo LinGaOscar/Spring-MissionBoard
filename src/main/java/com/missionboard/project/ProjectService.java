@@ -2,7 +2,7 @@ package com.missionboard.project;
 
 import com.missionboard.user.User;
 import com.missionboard.user.UserRepository;
-import com.missionboard.wbs.WbsNodeRepository;
+import com.missionboard.task.TaskRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,7 +17,7 @@ public class ProjectService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
-    private final WbsNodeRepository wbsNodeRepository;
+    private final TaskRepository taskRepository;
 
     // 統一拋 EntityNotFoundException，controller 層交給 GlobalExceptionHandler 轉 404
     public Project getById(Long id) {
@@ -140,7 +140,7 @@ public class ProjectService {
         // project_members（本方法呼叫端或測試斷言）不保證觸發 auto-flush，
         // 會讀到「看似還沒刪除」的結果，故此處立即 flush 確保刪除立即可見
         projectMemberRepository.flush();
-        wbsNodeRepository.clearAssigneeForUserInProject(projectId, userId);
+        taskRepository.clearAssigneeForUserInProject(projectId, userId);
     }
 
     // 換負責人：若新 owner 尚未是成員自動補加，確保新 owner 一定對自己的專案有 canWrite

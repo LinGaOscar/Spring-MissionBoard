@@ -2,10 +2,10 @@ package com.missionboard.project;
 
 import com.missionboard.department.Department;
 import com.missionboard.department.DepartmentRepository;
+import com.missionboard.task.Task;
+import com.missionboard.task.TaskRepository;
 import com.missionboard.user.User;
 import com.missionboard.user.UserRepository;
-import com.missionboard.wbs.WbsNode;
-import com.missionboard.wbs.WbsNodeRepository;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +48,7 @@ class ProjectControllerTest {
     private ProjectMemberRepository projectMemberRepository;
 
     @Autowired
-    private WbsNodeRepository wbsNodeRepository;
+    private TaskRepository taskRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -213,32 +213,25 @@ class ProjectControllerTest {
     }
 
     @Test
-    void removeMemberClearsNodeAssignee() throws Exception {
+    void removeMemberClearsTaskAssignee() throws Exception {
         User memberX = saveUser("memberX", User.Role.PROJECT_MEMBER, sectionA);
         ProjectMember pm = new ProjectMember();
         pm.setId(new ProjectMemberId(projectA.getId(), memberX.getId()));
         pm.setAssignedBy(leaderA);
         projectMemberRepository.save(pm);
 
-        WbsNode l1 = new WbsNode();
-        l1.setProject(projectA);
-        l1.setLevel((short) 1);
-        l1.setTitle("SIT");
-        WbsNode savedL1 = wbsNodeRepository.save(l1);
-        WbsNode l3 = new WbsNode();
-        l3.setProject(projectA);
-        l3.setParent(savedL1);
-        l3.setLevel((short) 3);
-        l3.setTitle("細項");
-        l3.setAssignee(memberX);
-        WbsNode savedL3 = wbsNodeRepository.save(l3);
+        Task task = new Task();
+        task.setProject(projectA);
+        task.setTitle("細項");
+        task.setAssignee(memberX);
+        Task savedTask = taskRepository.save(task);
 
         Cookie session = loginAs("chiefA");
         mockMvc.perform(delete("/api/projects/" + projectA.getId() + "/members/" + memberX.getId())
                 .cookie(session).with(csrf()))
             .andExpect(status().isOk());
 
-        assertThat(wbsNodeRepository.findById(savedL3.getId()).orElseThrow().getAssignee()).isNull();
+        assertThat(taskRepository.findById(savedTask.getId()).orElseThrow().getAssignee()).isNull();
     }
 
     @Test
