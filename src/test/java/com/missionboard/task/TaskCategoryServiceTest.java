@@ -6,6 +6,8 @@ import com.missionboard.project.Project;
 import com.missionboard.project.ProjectRepository;
 import com.missionboard.user.User;
 import com.missionboard.user.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,11 +28,15 @@ class TaskCategoryServiceTest {
     @Autowired
     private TaskCategoryPresetRepository taskCategoryPresetRepository;
     @Autowired
+    private TaskRepository taskRepository;
+    @Autowired
     private ProjectRepository projectRepository;
     @Autowired
     private DepartmentRepository departmentRepository;
     @Autowired
     private UserRepository userRepository;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private Project project;
     private Project otherProject;
@@ -118,6 +124,37 @@ class TaskCategoryServiceTest {
         taskCategoryService.delete(project.getId(), stage.getId());
 
         assertThat(taskCategoryService.list(project.getId())).isEmpty();
+    }
+
+    // 整個「任務天生獨立、分類選配」設計都靠這條行為撐著：刪類別不能連帶刪任務，
+    // 只能讓任務落回未歸類（category_id = NULL，見 Task.category 的 ON DELETE SET NULL）
+    @Test
+    void deletingCategoryOrphansItsTasksInsteadOfDeletingThem() {
+        TaskCategory category = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+
+        Task task = new Task();
+        task.setProject(project);
+        task.setCategory(category);
+        task.setTitle("待歸類任務");
+        Task savedTask = taskRepository.save(task);
+        Long taskId = savedTask.getId();
+
+        // 先把 Task 逐出一級快取：這條測試要驗證的是 DB 層 ON DELETE SET NULL 的效果，
+        // 若 savedTask 仍留在同一 persistence context，Hibernate flush 前的一致性檢查
+        // 會把它「還指著即將被刪除的類別」視為懸空參照丟 TransientObjectException，
+        // 這是 Hibernate session 快取的干擾，跟我們要驗證的 DB 行為無關
+        entityManager.detach(savedTask);
+
+        taskCategoryService.delete(project.getId(), category.getId());
+
+        // ON DELETE SET NULL 是 DB 層動作，Hibernate 一級快取不會知道，
+        // 不 flush+clear 直接 findById 會拿到記憶體裡的舊快照（category 仍非 null）、蓋掉這條測試想驗證的行為
+        entityManager.flush();
+        entityManager.clear();
+
+        Task reloaded = taskRepository.findById(taskId).orElseThrow();
+        assertThat(reloaded.getCategory()).isNull();
     }
 
     private Department newDept(String name) {

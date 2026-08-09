@@ -106,6 +106,15 @@
       },
       onCardDragOver(status, idx) {
         this.dragOverCol = status;
+        // 同欄拖曳時 tasksIn(status) 仍含被拖曳卡片本身，往下拖（idx 大於原本位置）時
+        // 目標位置要扣掉自己這一格，否則 sendMove／後端 moveTask 在移除自己後的陣列上
+        // insert 到 idx，會比視覺上停在的卡片多推一格（off-by-one，往上拖與跨欄不受影響）
+        if (this.dragging && this.dragging.status === status) {
+          const currentIdx = this.tasksIn(status).findIndex(t => t.id === this.dragging.id);
+          if (currentIdx !== -1 && idx > currentIdx) {
+            idx -= 1;
+          }
+        }
         this.dragIndex = idx;
       },
       async onDrop(status) {

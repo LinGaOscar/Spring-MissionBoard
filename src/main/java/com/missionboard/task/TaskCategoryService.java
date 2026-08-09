@@ -25,6 +25,9 @@ public class TaskCategoryService {
     // 建立類別：從選單快照名稱；深度上限兩層在此強制（service 層驗證，不用 DB CHECK）
     @Transactional
     public TaskCategory create(Long projectId, TaskCategoryDto.CreateRequest req) {
+        if (req.presetId() == null) {
+            throw new IllegalArgumentException("選單項目為必填");
+        }
         Project project = projectService.getById(projectId);
         TaskCategory parent = null;
         if (req.parentCategoryId() != null) {

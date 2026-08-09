@@ -6,11 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **已完成任務導向模型重構，這是現行架構。** 真相來源是 `docs/superpowers/specs/2026-08-08-missionboard-task-oriented-rewrite-design.md`；動手前先讀它，本檔僅摘錄關鍵決策。
 
-`tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。看板（`KanbanView`）為專案詳情頁預設且唯一的分頁，可實際操作：拖曳卡片跨欄、建立任務、歸類、指派、狀態切換皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁已隨這次重構移除，若後續要重做，需依新的扁平任務模型另行設計，不可沿用舊 `wbs_nodes` 邏輯。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
+`tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。看板（`KanbanView`）為專案詳情頁預設且唯一的分頁，可實際操作：拖曳卡片跨欄、建立任務、歸類、指派皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁已隨這次重構移除，若後續要重做，需依新的扁平任務模型另行設計，不可沿用舊 `wbs_nodes` 邏輯。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
 
 ## 專案定位
 
-綜合性任務管理器：WBS 規劃與任務派工同一系統。整合本機兩個舊專案的已驗證程式碼與模式（全新 repo，不以任一者為基底）：
+綜合性任務管理器：以扁平任務模型為核心的看板式任務派工系統。整合本機兩個舊專案的已驗證程式碼與模式（全新 repo，不以任一者為基底）：
 
 - `~/Documents/GitHub/Spring-TaskFlow`：看板（`board.js`）、任務指派、成員機制、科別隔離
 - `~/Documents/GitHub/Spring-WbsScaff`：WBS 樹編輯（`wbs-editor.js`）、權限模式、專案生命週期
@@ -66,11 +66,11 @@ mvn test -Dtest=ClassName#methodName
 
 ### API 慣例
 
-統一 `ApiResponse` 信封＋`GlobalExceptionHandler`（自舊專案移植）。狀態變更與派工走專用 PATCH 端點（`/status`、`/assignee`、`/reorder`），不塞進泛用 PUT。
+統一 `ApiResponse` 信封＋`GlobalExceptionHandler`（自舊專案移植）。狀態變更與派工走專用 PATCH 端點（`/status`、`/assignee`、`/move`），不塞進泛用 PUT。
 
 ## 前端模式
 
-專案詳情頁一次載入任務與分類資料，看板（`project-detail.js` 的 `KanbanView`）是預設且唯一落地的檢視。所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）：拖曳卡片跨欄呼叫 `move` 端點、建立任務預設「未歸類」（`category_id` 為 NULL）、點卡片開 modal 編輯歸類／指派／狀態。
+專案詳情頁一次載入任務與分類資料，看板（`project-detail.js` 的 `KanbanView`）是預設且唯一落地的檢視。所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）：拖曳卡片跨欄呼叫 `move` 端點、建立任務預設「未歸類」（`category_id` 為 NULL）、點卡片開 modal 編輯歸類／指派／優先度／日期。
 
 ## 測試重點
 
