@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -13,6 +14,11 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+// 看板前端 saveTask() 對同一任務並行送出 PUT（本體欄位）+ PATCH（指派人），
+// 兩個獨立 @Transactional 方法各自 findById 讀到自己的快照；Hibernate 預設全欄位 UPDATE
+// 會用「載入當下」的舊快照覆蓋對方剛提交的欄位（遺失更新）。@DynamicUpdate 讓 UPDATE 只帶
+// 本次交易真正 set 過的欄位，兩個並行請求互不覆蓋彼此未觸碰的欄位。
+@DynamicUpdate
 @Entity
 @Table(name = "tasks")
 @Getter
