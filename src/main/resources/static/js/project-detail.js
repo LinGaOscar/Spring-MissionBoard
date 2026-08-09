@@ -4,19 +4,14 @@
   const el = document.getElementById('detail-app');
   const projectId = Number(el.dataset.projectId);
   const canWrite = el.dataset.canWrite === 'true';
-  const sectionId = el.dataset.sectionId ? Number(el.dataset.sectionId) : null;
-  const csrfToken = document.querySelector('meta[name="_csrf"]').content;
-  const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
-
-  const STATUS_LABEL = { NOT_STARTED: '未開始', IN_PROGRESS: '進行中', DONE: '已完成' };
-  const STATUS_CYCLE = { NOT_STARTED: 'IN_PROGRESS', IN_PROGRESS: 'DONE', DONE: 'NOT_STARTED' };
-  const PRIORITY_LABEL = { HIGH: '高', MEDIUM: '中', LOW: '低' };
 
   async function api(url, options = {}) {
     // fetch 失敗（斷線）或伺服器回傳非 JSON（如 CSRF 過期時的 HTML 錯誤頁）都會在此拋出例外；
     // 若不攔截，樂觀更新永遠不會回滾、也不會跳 toast，使用者會誤以為變更已儲存。
     // 注意：後端錯誤（400/403/404）本來就會回傳含 message 的 JSON（GlobalExceptionHandler），
     // 所以這裡不能用 res.ok 短路，仍要嘗試解析 JSON，只有解析本身失敗才視為網路錯誤。
+    const csrfToken = document.querySelector('meta[name="_csrf"]').content;
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
     try {
       const headers = { [csrfHeader]: csrfToken };
       if (options.body) headers['Content-Type'] = 'application/json';
@@ -27,282 +22,47 @@
     }
   }
 
-  function buildTree(flatNodes) {
-    const byId = {};
-    flatNodes.forEach(n => { byId[n.id] = { ...n, children: [] }; });
-    const roots = [];
-    flatNodes.forEach(n => {
-      const node = byId[n.id];
-      if (n.parentId != null && byId[n.parentId]) {
-        byId[n.parentId].children.push(node);
-      } else {
-        roots.push(node);
-      }
-    });
-    const sortRec = (list) => {
-      list.sort((a, b) => a.sortOrder - b.sortOrder);
-      list.forEach(n => sortRec(n.children));
-    };
-    sortRec(roots);
-    return roots;
-  }
-
-  function numbering(nodes, prefix = '') {
-    const map = {};
-    nodes.forEach((n, i) => {
-      const num = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
-      map[n.id] = num;
-      if (n.children.length) Object.assign(map, numbering(n.children, num));
-    });
-    return map;
-  }
-
   const KanbanView = defineComponent({
     name: 'KanbanView',
-    props: { nodes: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
-    template: `<p class="placeholder-tab">看板檢視開發中</p>`,
-  });
-
-  const AssignmentView = defineComponent({
-    name: 'AssignmentView',
-    props: { nodes: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
-    template: `<p class="placeholder-tab">人員派工檢視開發中</p>`,
-  });
-
-  const GanttView = defineComponent({
-    name: 'GanttView',
-    props: { nodes: { type: Array, default: () => [] }, canWrite: { type: Boolean, default: false } },
-    template: `<p class="placeholder-tab">甘特檢視開發中</p>`,
-  });
-
-  const WbsNodeRow = defineComponent({
-    name: 'WbsNodeRow',
     props: {
-      node: { type: Object, required: true },
-      numbering: { type: Object, required: true },
-      depth: { type: Number, default: 0 },
+      projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
-      members: { type: Array, default: () => [] },
-      sectionId: { type: Number, default: null },
     },
-    emits: ['cycle-status', 'update-title', 'create-node', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node', 'show-toast'],
     data() {
       return {
-        editingTitle: false, titleDraft: this.node.title,
-        showAddForm: false, addTitle: '', addPresetId: '', categoryPresets: [],
-      };
-    },
-    computed: {
-      statusLabel() { return STATUS_LABEL[this.node.status] || ''; },
-    },
-    methods: {
-      onCycleStatus() {
-        if (this.canWrite && this.node.level === 3) this.$emit('cycle-status', this.node.id);
-      },
-      startEditTitle() {
-        if (!this.canWrite) return;
-        this.titleDraft = this.node.title;
-        this.editingTitle = true;
-        this.$nextTick(() => this.$refs.titleInput && this.$refs.titleInput.focus());
-      },
-      commitTitle() {
-        this.editingTitle = false;
-        if (this.titleDraft.trim() && this.titleDraft !== this.node.title) {
-          this.$emit('update-title', this.node.id, this.titleDraft.trim());
-        }
-      },
-      async openAddForm() {
-        this.showAddForm = true;
-        this.addTitle = ''; this.addPresetId = '';
-        if (this.node.level === 1) {
-          // 不帶 sectionId 後端會用「呼叫者所屬科別」預設，但節點建立驗證是比對「專案所屬科別」；
-          // 跨科成員（PROJECT_MEMBER 可寫但科別不同）會看到錯誤選單、送出時被拒，故明確帶入專案的 sectionId
-          const query = this.sectionId != null ? `&sectionId=${this.sectionId}` : '';
-          const res = await api(`/api/presets?type=CATEGORY${query}`);
-          this.categoryPresets = res.success ? res.data : [];
-        }
-      },
-      submitAdd() {
-        if (this.node.level === 1) {
-          if (!this.addPresetId) return;
-          this.$emit('create-node', { parentId: this.node.id, presetId: Number(this.addPresetId) });
-        } else {
-          if (!this.addTitle.trim()) return;
-          this.$emit('create-node', { parentId: this.node.id, title: this.addTitle.trim() });
-        }
-        this.showAddForm = false;
-      },
-      onAssigneeChange(e) {
-        const val = e.target.value ? Number(e.target.value) : null;
-        this.$emit('update-assignee', this.node.id, val);
-      },
-      onPriorityChange(e) {
-        // 後端 updateNode 是 null 容忍的部分更新，收到 null 只會「不動」而非「清除」，
-        // 送出清除值只會讓畫面顯示已清除但實際仍是舊值；因此清空選項時直接還原畫面、提示改選，不送出請求
-        const val = e.target.value;
-        if (!val) {
-          e.target.value = this.node.priority || '';
-          this.$emit('show-toast', '此欄位目前不支援清除，請改選其他值');
-          return;
-        }
-        this.$emit('update-priority', this.node.id, val);
-      },
-      onDateChange(field, e) {
-        const val = e.target.value;
-        if (!val) {
-          e.target.value = this.node[field] || '';
-          this.$emit('show-toast', '此欄位目前不支援清除，請改選其他值');
-          return;
-        }
-        const dates = { startDate: this.node.startDate, endDate: this.node.endDate };
-        dates[field] = val;
-        this.$emit('update-dates', this.node.id, dates);
-      },
-      onMoveUp() { this.$emit('move-node', this.node.id, 'up'); },
-      onMoveDown() { this.$emit('move-node', this.node.id, 'down'); },
-      onDelete() {
-        const msg = this.node.children.length
-          ? `確定刪除「${this.node.title}」？將一併刪除其下所有子節點。`
-          : `確定刪除「${this.node.title}」？`;
-        if (confirm(msg)) this.$emit('delete-node', this.node.id);
-      },
-    },
-    template: `
-      <div class="wbs-node-row">
-        <div class="wbs-node" :style="{ paddingLeft: (depth * 24) + 'px' }">
-          <span class="wbs-num">{{ numbering[node.id] }}</span>
-          <span class="wbs-status-badge" :class="'status-' + node.status.toLowerCase()"
-                :style="{ cursor: (canWrite && node.level === 3) ? 'pointer' : 'default' }"
-                @click="onCycleStatus">{{ statusLabel }}</span>
-          <span v-if="!editingTitle" class="wbs-title" @dblclick="startEditTitle">{{ node.title }}</span>
-          <input v-else ref="titleInput" class="wbs-title-input" v-model="titleDraft"
-                 @blur="commitTitle" @keyup.enter="commitTitle" @keyup.escape="editingTitle=false" />
-          <template v-if="node.level === 3">
-            <select class="wbs-field-input" :disabled="!canWrite" :value="node.assigneeId || ''" @change="onAssigneeChange">
-              <option value="">未指派</option>
-              <option v-for="m in members" :key="m.userId" :value="m.userId">{{ m.displayName }}</option>
-            </select>
-            <select class="wbs-field-input" :disabled="!canWrite" :value="node.priority || ''" @change="onPriorityChange">
-              <option value="">優先度</option>
-              <option value="HIGH">高</option>
-              <option value="MEDIUM">中</option>
-              <option value="LOW">低</option>
-            </select>
-            <input type="date" class="wbs-field-input" :disabled="!canWrite" :value="node.startDate" @change="onDateChange('startDate', $event)" />
-            <input type="date" class="wbs-field-input" :disabled="!canWrite" :value="node.endDate" @change="onDateChange('endDate', $event)" />
-          </template>
-        </div>
-        <div class="wbs-actions" v-if="canWrite">
-          <button class="btn btn-sm" @click="onMoveUp">↑</button>
-          <button class="btn btn-sm" @click="onMoveDown">↓</button>
-          <button class="btn btn-sm" v-if="node.level < 3" @click="openAddForm">{{ node.level === 1 ? '新增類別' : '新增細項' }}</button>
-          <button class="btn btn-sm btn-danger" @click="onDelete">刪除</button>
-        </div>
-        <div v-if="showAddForm" class="modal-overlay" @click.self="showAddForm=false">
-          <div class="modal">
-            <h3>{{ node.level === 1 ? '新增類別' : '新增細項' }}</h3>
-            <div class="form-group" v-if="node.level === 1">
-              <label>選擇類別選單項目</label>
-              <select v-model="addPresetId">
-                <option value="">請選擇</option>
-                <option v-for="p in categoryPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
-              </select>
-            </div>
-            <div class="form-group" v-else>
-              <label>細項標題</label>
-              <input v-model="addTitle" @keyup.enter="submitAdd" />
-            </div>
-            <div class="modal-actions">
-              <button class="btn" @click="showAddForm=false">取消</button>
-              <button class="btn btn-primary" @click="submitAdd">新增</button>
-            </div>
-          </div>
-        </div>
-        <wbs-node-row v-for="child in node.children" :key="child.id" :node="child" :numbering="numbering"
-          :depth="depth + 1" :can-write="canWrite" :members="members" :section-id="sectionId"
-          @cycle-status="$emit('cycle-status', $event)"
-          @update-title="(id, t) => $emit('update-title', id, t)"
-          @create-node="$emit('create-node', $event)"
-          @update-assignee="(id, a) => $emit('update-assignee', id, a)"
-          @update-priority="(id, p) => $emit('update-priority', id, p)"
-          @update-dates="(id, d) => $emit('update-dates', id, d)"
-          @move-node="(id, dir) => $emit('move-node', id, dir)"
-          @delete-node="$emit('delete-node', $event)"
-          @show-toast="$emit('show-toast', $event)" />
-      </div>
-    `,
-  });
-
-  const TreeEditorView = defineComponent({
-    name: 'TreeEditorView',
-    props: {
-      nodes: { type: Array, default: () => [] }, members: { type: Array, default: () => [] },
-      canWrite: { type: Boolean, default: false }, loading: { type: Boolean, default: false },
-      sectionId: { type: Number, default: null },
-    },
-    emits: ['cycle-status', 'update-title', 'create-node', 'init-stages', 'update-assignee', 'update-priority', 'update-dates', 'move-node', 'delete-node', 'show-toast'],
-    computed: {
-      tree() { return buildTree(this.nodes); },
-      numberingMap() { return numbering(this.tree); },
-      l3Nodes() { return this.nodes.filter(n => n.level === 3); },
-      stats() {
-        const total = this.l3Nodes.length;
-        const done = this.l3Nodes.filter(n => n.status === 'DONE').length;
-        const rate = total ? Math.round(done / total * 100) : 0;
-        return { total, done, rate };
-      },
-    },
-    template: `
-      <div class="wbs-tree-editor">
-        <div class="page-header">
-          <h2>樹編輯器</h2>
-          <button v-if="canWrite && !loading && nodes.length === 0" class="btn btn-primary" @click="$emit('init-stages')">初始化階段骨架</button>
-        </div>
-        <p v-if="loading">載入中...</p>
-        <template v-else>
-          <p class="wbs-stats" v-if="nodes.length">細項總數：{{ stats.total }}，完成率：{{ stats.rate }}%（{{ stats.done }}/{{ stats.total }}）</p>
-          <p v-if="nodes.length === 0">此專案尚未建立節點</p>
-          <wbs-node-row v-for="root in tree" :key="root.id" :node="root" :numbering="numberingMap"
-            :depth="0" :can-write="canWrite" :members="members" :section-id="sectionId"
-            @cycle-status="$emit('cycle-status', $event)"
-            @update-title="(id, t) => $emit('update-title', id, t)"
-            @create-node="$emit('create-node', $event)"
-            @update-assignee="(id, a) => $emit('update-assignee', id, a)"
-            @update-priority="(id, p) => $emit('update-priority', id, p)"
-            @update-dates="(id, d) => $emit('update-dates', id, d)"
-            @move-node="(id, dir) => $emit('move-node', id, dir)"
-            @delete-node="$emit('delete-node', $event)"
-            @show-toast="$emit('show-toast', $event)" />
-        </template>
-      </div>
-    `,
-  });
-
-  const app = createApp({
-    data() {
-      return {
-        projectId, canWrite, sectionId,
-        nodes: [], members: [],
+        tasks: [], categories: [], members: [],
         loading: true,
-        activeTab: 'tree',
+        columns: [
+          { status: 'NOT_STARTED', label: '未開始' },
+          { status: 'IN_PROGRESS', label: '進行中' },
+          { status: 'DONE', label: '已完成' },
+        ],
+        dragging: null, dragOverCol: null, dragIndex: 0,
+        taskWriteQueue: {},  // 同一任務的連續寫入序列化，避免拖曳與 modal 編輯併發時後完成者用舊快照蓋掉新資料（遺失更新）
+        modal: {
+          open: false, taskId: null,
+          form: { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null },
+        },
         toastMessage: '', toastTimer: null,
-        nodeWriteQueue: {},  // 同一節點的連續寫入序列化：後端 PUT/PATCH 各自整筆存檔、無版本鎖，若兩筆改同節點的請求並發送出，
-                             // 完成順序不保證與送出順序一致，先送出但後完成者會用舊快照蓋掉後送出者剛存好的欄位（遺失更新）；
-                             // 排隊等前一筆真正完成再送下一筆，可確保同節點寫入嚴格依序執行
       };
     },
     methods: {
+      emptyForm() {
+        return { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null };
+      },
       async loadAll() {
         this.loading = true;
         try {
-          const [nodesRes, membersRes] = await Promise.all([
-            api(`/api/projects/${this.projectId}/nodes`),
+          const [tasksRes, categoriesRes, membersRes] = await Promise.all([
+            api(`/api/projects/${this.projectId}/tasks`),
+            api(`/api/projects/${this.projectId}/task-categories`),
             api(`/api/projects/${this.projectId}/members`),
           ]);
-          this.nodes = nodesRes.success ? nodesRes.data : [];
+          this.tasks = tasksRes.success ? tasksRes.data : [];
+          this.categories = categoriesRes.success ? categoriesRes.data : [];
           this.members = membersRes.success ? membersRes.data : [];
-          if (!nodesRes.success || !membersRes.success) {
-            this.showToast(nodesRes.message || membersRes.message || '載入失敗，請重新整理');
+          if (!tasksRes.success || !categoriesRes.success || !membersRes.success) {
+            this.showToast(tasksRes.message || categoriesRes.message || membersRes.message || '載入失敗，請重新整理');
           }
         } catch (e) {
           this.showToast('載入失敗，請重新整理');
@@ -315,103 +75,136 @@
         clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, 3000);
       },
-      queueNodeWrite(nodeId, task) {
-        const prev = this.nodeWriteQueue[nodeId] || Promise.resolve();
+      queueTaskWrite(taskId, task) {
+        const prev = this.taskWriteQueue[taskId] || Promise.resolve();
         const next = prev.then(task, task);
-        this.nodeWriteQueue[nodeId] = next;
+        this.taskWriteQueue[taskId] = next;
         return next;
       },
-      async cycleStatus(nodeId) {
-        const node = this.nodes.find(n => n.id === nodeId);
-        const prev = node.status;
-        const nextStatus = STATUS_CYCLE[prev];
-        node.status = nextStatus;
-        await this.queueNodeWrite(nodeId, async () => {
-          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/status`, {
-            method: 'PATCH', body: JSON.stringify({ status: nextStatus }),
-          });
-          if (!result.success) { node.status = prev; this.showToast(result.message || '狀態更新失敗'); }
-        });
+      tasksIn(status) {
+        return this.tasks.filter(t => t.status === status).sort((a, b) => a.sortOrder - b.sortOrder);
       },
-      async updateTitle(nodeId, title) {
-        const node = this.nodes.find(n => n.id === nodeId);
-        const prev = node.title;
-        node.title = title;
-        await this.queueNodeWrite(nodeId, async () => {
-          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
-            method: 'PUT', body: JSON.stringify({ title, notes: null, priority: null, startDate: null, endDate: null }),
-          });
-          if (!result.success) { node.title = prev; this.showToast(result.message || '標題更新失敗'); }
-        });
+      // 已完成的任務不再警示逾期，避免歷史卡片一片紅；用本地日期字串比對，避免 toISOString 的 UTC 誤差
+      isOverdue(t) {
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        return !!t.dueDate && t.status !== 'DONE' && t.dueDate < today;
       },
-      async updateAssignee(nodeId, assigneeId) {
-        const node = this.nodes.find(n => n.id === nodeId);
-        const prevId = node.assigneeId, prevName = node.assigneeDisplayName;
-        node.assigneeId = assigneeId;
-        const member = this.members.find(m => m.userId === assigneeId);
-        node.assigneeDisplayName = member ? member.displayName : null;
-        await this.queueNodeWrite(nodeId, async () => {
-          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}/assignee`, {
-            method: 'PATCH', body: JSON.stringify({ assigneeId }),
-          });
-          if (!result.success) { node.assigneeId = prevId; node.assigneeDisplayName = prevName; this.showToast(result.message || '指派失敗'); }
-        });
+      onDragStart(t, ev) {
+        this.dragging = t;
+        this.dragIndex = 0;
+        ev.dataTransfer.effectAllowed = 'move';
       },
-      async updatePriority(nodeId, priority) {
-        const node = this.nodes.find(n => n.id === nodeId);
-        const prev = node.priority;
-        node.priority = priority;
-        await this.queueNodeWrite(nodeId, async () => {
-          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
-            method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority, startDate: null, endDate: null }),
-          });
-          if (!result.success) { node.priority = prev; this.showToast(result.message || '優先度更新失敗'); }
-        });
+      onColDragOver(status) {
+        // 卡片層級的 dragover（見 onCardDragOver）會以精準位置覆蓋這裡的預設值；
+        // 拖到空欄或欄尾空白處時沒有卡片可覆蓋，需要這個預設值撐住，否則 dragIndex 會殘留上次拖曳的舊值
+        this.dragOverCol = status;
+        const count = this.tasksIn(status).length;
+        // 卡片若原本就在本欄，本地陣列此刻仍含自己，尾端索引需扣掉自己
+        this.dragIndex = (this.dragging && this.dragging.status === status)
+          ? Math.max(0, count - 1) : count;
       },
-      async updateDates(nodeId, dates) {
-        const node = this.nodes.find(n => n.id === nodeId);
-        const prevStart = node.startDate, prevEnd = node.endDate;
-        node.startDate = dates.startDate; node.endDate = dates.endDate;
-        await this.queueNodeWrite(nodeId, async () => {
-          const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, {
-            method: 'PUT', body: JSON.stringify({ title: null, notes: null, priority: null, startDate: dates.startDate, endDate: dates.endDate }),
-          });
-          if (!result.success) { node.startDate = prevStart; node.endDate = prevEnd; this.showToast(result.message || '日期更新失敗'); }
-        });
+      onCardDragOver(status, idx) {
+        this.dragOverCol = status;
+        this.dragIndex = idx;
       },
-      async createNode(payload) {
-        const result = await api(`/api/projects/${this.projectId}/nodes`, {
-          method: 'POST', body: JSON.stringify(payload),
-        });
-        if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '新增失敗'); }
+      async onDrop(status) {
+        if (!this.dragging || !this.canWrite) return;
+        const taskId = this.dragging.id;
+        const targetIndex = this.dragIndex;
+        this.dragging = null;
+        this.dragOverCol = null;
+        await this.sendMove(taskId, status, targetIndex);
       },
-      async initStages() {
-        const result = await api(`/api/projects/${this.projectId}/nodes/init`, { method: 'POST' });
-        if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '初始化失敗'); }
-      },
-      async moveNode(nodeId, direction) {
-        const current = this.nodes.find(n => n.id === nodeId);
-        const siblings = this.nodes
-          .filter(n => n.parentId === current.parentId)
+      // 拖曳唯一走樂觀更新：本地先重新分配目標欄的 sortOrder 立即反映拖曳結果，
+      // 失敗才整批 reload（而非嘗試精算回滾每個受影響任務的 sortOrder，move 一次可能牽動整欄排序，
+      // 精算回滾複雜度不成比例，reload 更安全簡單）
+      async sendMove(taskId, status, targetIndex) {
+        const task = this.tasks.find(t => t.id === taskId);
+
+        const targetColumn = this.tasks.filter(t => t.id !== taskId && t.status === status)
           .sort((a, b) => a.sortOrder - b.sortOrder);
-        const idx = siblings.findIndex(n => n.id === nodeId);
-        const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-        if (swapIdx < 0 || swapIdx >= siblings.length) return;
-        // 交換陣列中的位置後，整批同層節點依新順序重新編號 0..n-1 送出，
-        // 而非只交換兩者的 sortOrder：若既有資料 sortOrder 重複（如皆為 0），
-        // 純交換會產生相同 payload，Hibernate 髒檢查判斷無變化而不送出 UPDATE，
-        // 導致移動操作無聲失效；全量重編號同時能自我修復既有的重複值。
-        [siblings[idx], siblings[swapIdx]] = [siblings[swapIdx], siblings[idx]];
-        const payload = siblings.map((n, i) => ({ nodeId: n.id, parentId: n.parentId, sortOrder: i }));
-        const result = await api(`/api/projects/${this.projectId}/nodes/reorder`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
+        const insertAt = Math.max(0, Math.min(targetIndex, targetColumn.length));
+        targetColumn.splice(insertAt, 0, task);
+        task.status = status;
+        targetColumn.forEach((t, i) => { t.sortOrder = i; });
+
+        await this.queueTaskWrite(taskId, async () => {
+          const result = await api(`/api/projects/${this.projectId}/tasks/${taskId}/move`, {
+            method: 'PATCH', body: JSON.stringify({ status, sortOrder: targetIndex }),
+          });
+          if (!result.success) {
+            // move 一次可能牽動整欄排序，回滾要精算所有受影響任務的 sortOrder，複雜度不成比例；
+            // 直接整批 reload 從後端拿回真實狀態更簡單可靠（呼應上方設計決策 5）
+            this.showToast(result.message || '移動失敗');
+            await this.loadAll();
+          }
         });
-        if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '排序失敗'); }
       },
-      async deleteNode(nodeId) {
-        const result = await api(`/api/projects/${this.projectId}/nodes/${nodeId}`, { method: 'DELETE' });
-        if (result.success) { await this.loadAll(); } else { this.showToast(result.message || '刪除失敗'); }
+      openCreate() {
+        this.modal = { open: true, taskId: null, form: this.emptyForm() };
+      },
+      openEdit(t) {
+        this.modal = {
+          open: true, taskId: t.id,
+          form: {
+            title: t.title, description: t.description || '', assigneeId: t.assigneeId,
+            categoryId: t.categoryId, priority: t.priority, startDate: t.startDate, dueDate: t.dueDate,
+          },
+        };
+      },
+      // 建立與編輯共用：CreateRequest 只收 categoryId/title/description，
+      // 指派人/優先度/日期一律等有了 taskId 後跟編輯流程共用同一段 PUT+PATCH，不重複組裝欄位邏輯
+      async saveTask() {
+        const form = this.modal.form;
+        if (!form.title || !form.title.trim()) {
+          this.showToast('標題不可為空');
+          return;
+        }
+
+        let taskId = this.modal.taskId;
+        if (!taskId) {
+          const createResult = await api(`/api/projects/${this.projectId}/tasks`, {
+            method: 'POST',
+            body: JSON.stringify({ categoryId: form.categoryId, title: form.title.trim(), description: form.description || null }),
+          });
+          if (!createResult.success) {
+            this.showToast(createResult.message || '新增失敗');
+            return;
+          }
+          taskId = createResult.data.id;
+        }
+
+        const [updateResult, assigneeResult] = await Promise.all([
+          api(`/api/projects/${this.projectId}/tasks/${taskId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              title: form.title.trim(), description: form.description || null,
+              categoryId: form.categoryId, priority: form.priority || null,
+              startDate: form.startDate || null, dueDate: form.dueDate || null,
+            }),
+          }),
+          api(`/api/projects/${this.projectId}/tasks/${taskId}/assignee`, {
+            method: 'PATCH', body: JSON.stringify({ assigneeId: form.assigneeId }),
+          }),
+        ]);
+
+        if (updateResult.success && assigneeResult.success) {
+          this.modal.open = false;
+          await this.loadAll();
+        } else {
+          this.showToast(updateResult.message || assigneeResult.message || '儲存失敗');
+        }
+      },
+      async deleteTask() {
+        if (!confirm('確定刪除此任務？')) return;
+        const result = await api(`/api/projects/${this.projectId}/tasks/${this.modal.taskId}`, { method: 'DELETE' });
+        if (result.success) {
+          this.modal.open = false;
+          await this.loadAll();
+        } else {
+          this.showToast(result.message || '刪除失敗');
+        }
       },
     },
     mounted() {
@@ -419,31 +212,81 @@
     },
     template: `
       <div>
-        <div class="tabs">
-          <button class="btn" :class="{ 'btn-primary': activeTab==='tree' }" @click="activeTab='tree'">樹編輯器</button>
-          <button class="btn" :class="{ 'btn-primary': activeTab==='kanban' }" @click="activeTab='kanban'">看板</button>
-          <button class="btn" :class="{ 'btn-primary': activeTab==='assignment' }" @click="activeTab='assignment'">人員派工</button>
-          <button class="btn" :class="{ 'btn-primary': activeTab==='gantt' }" @click="activeTab='gantt'">甘特</button>
+        <div class="kanban-toolbar" v-if="canWrite">
+          <button class="btn btn-primary" @click="openCreate">新增任務</button>
         </div>
-        <div v-show="activeTab==='tree'">
-          <tree-editor-view :nodes="nodes" :members="members" :can-write="canWrite" :loading="loading" :section-id="sectionId"
-            @cycle-status="cycleStatus" @update-title="updateTitle"
-            @create-node="createNode" @init-stages="initStages"
-            @update-assignee="updateAssignee" @update-priority="updatePriority" @update-dates="updateDates"
-            @move-node="moveNode" @delete-node="deleteNode" @show-toast="showToast" />
+        <p v-if="loading">載入中...</p>
+        <div v-else class="kanban">
+          <div v-for="col in columns" :key="col.status" class="kanban-col"
+               :class="{ 'drag-over': dragOverCol === col.status }"
+               @dragover.prevent="onColDragOver(col.status)"
+               @dragleave="dragOverCol = null"
+               @drop="onDrop(col.status)">
+            <div class="kanban-col-header">
+              <span>{{ col.label }}</span>
+              <span class="kanban-col-count">{{ tasksIn(col.status).length }}</span>
+            </div>
+            <div v-for="(t, idx) in tasksIn(col.status)" :key="t.id"
+                 class="task-card" :class="['priority-' + (t.priority || 'NONE'), { dragging: dragging === t }]"
+                 :draggable="canWrite" @dragstart="onDragStart(t, $event)"
+                 @dragover.prevent.stop="onCardDragOver(col.status, idx)" @click="openEdit(t)">
+              <div class="task-card-title">{{ t.title }}</div>
+              <div class="task-card-meta">
+                <span>{{ t.assigneeDisplayName || '未指派' }}</span>
+                <span class="task-due" :class="{ overdue: isOverdue(t) }" v-if="t.dueDate">{{ t.dueDate }}</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div v-show="activeTab==='kanban'"><kanban-view :nodes="nodes" :can-write="canWrite" /></div>
-        <div v-show="activeTab==='assignment'"><assignment-view :nodes="nodes" :can-write="canWrite" /></div>
-        <div v-show="activeTab==='gantt'"><gantt-view :nodes="nodes" :can-write="canWrite" /></div>
+        <div v-if="modal.open" class="modal-overlay" @click.self="modal.open = false">
+          <div class="modal">
+            <h3>{{ modal.taskId ? '編輯任務' : '新增任務' }}</h3>
+            <div class="form-group"><label>標題</label><input v-model="modal.form.title" /></div>
+            <div class="form-group"><label>描述</label><textarea v-model="modal.form.description" rows="4"></textarea></div>
+            <div class="form-group">
+              <label>指派人</label>
+              <select v-model="modal.form.assigneeId">
+                <option :value="null">未指派</option>
+                <option v-for="m in members" :key="m.userId" :value="m.userId">{{ m.displayName }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>所屬類別</label>
+              <select v-model="modal.form.categoryId">
+                <option :value="null">未歸類</option>
+                <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>優先度</label>
+              <select v-model="modal.form.priority">
+                <option :value="null">未設定</option>
+                <option value="HIGH">高</option>
+                <option value="MEDIUM">中</option>
+                <option value="LOW">低</option>
+              </select>
+            </div>
+            <div class="form-group"><label>起始日</label><input type="date" v-model="modal.form.startDate" /></div>
+            <div class="form-group"><label>到期日</label><input type="date" v-model="modal.form.dueDate" /></div>
+            <div class="modal-actions">
+              <button class="btn btn-primary" @click="saveTask" :disabled="!canWrite">儲存</button>
+              <button v-if="modal.taskId && canWrite" class="btn btn-danger" @click="deleteTask">刪除</button>
+              <button class="btn" @click="modal.open = false">取消</button>
+            </div>
+          </div>
+        </div>
         <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
       </div>
     `,
   });
 
-  app.component('tree-editor-view', TreeEditorView);
-  app.component('wbs-node-row', WbsNodeRow);
+  const app = createApp({
+    data() {
+      return { projectId, canWrite };
+    },
+    template: `<kanban-view :project-id="projectId" :can-write="canWrite" />`,
+  });
+
   app.component('kanban-view', KanbanView);
-  app.component('assignment-view', AssignmentView);
-  app.component('gantt-view', GanttView);
   app.mount('#detail-app');
 })();
