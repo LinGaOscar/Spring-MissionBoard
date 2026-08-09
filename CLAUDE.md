@@ -60,7 +60,7 @@ mvn test -Dtest=ClassName#methodName
 ### 權限與安全（移植舊專案鐵則）
 
 - 權限集中於 `ProjectService.canRead / canWrite`，一律先 null 防禦；四角色：DIRECTOR（跨科唯讀）、SECTION_CHIEF（科內全權）、PROJECT_LEADER（自有專案）、PROJECT_MEMBER（僅參與專案）
-- **IDOR 防護**：所有節點操作先驗證 `node.project` 與 URL 路徑上的 project 一致
+- **IDOR 防護**：`task`／`task_category` 操作各自先驗證所屬 `project` 與 URL 路徑上的 project 一致（`TaskService.getTaskInProject()`、`TaskCategoryService.getCategoryInProject()`，兩條平行檢查）
 - 指派人必須是專案成員；移除成員時自動解除其身上的指派
 - 封存專案＝全員唯讀；封存／解封存操作冪等
 
