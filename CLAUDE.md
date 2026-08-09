@@ -4,12 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案狀態
 
-**核心骨幹已實作，仍在現行「WBS 樹狀規劃」模型上。** 現行架構的真相來源是 `docs/superpowers/specs/2026-07-17-wbsflow-design.md`；動手前先讀它，本檔僅摘錄關鍵決策。
+**已完成任務導向模型重構，這是現行架構。** 真相來源是 `docs/superpowers/specs/2026-08-08-missionboard-task-oriented-rewrite-design.md`；動手前先讀它，本檔僅摘錄關鍵決策。
 
-已完成（子專案 A-D）：`department`/`user`/`project` 資料層與權限核心（`ProjectService.canRead/canWrite/canArchive`）、Spring Security 表單登入（`auth/SecurityConfig`＋`CustomUserDetailsService`）、專案管理 CRUD＋成員管理、`wbs` 套件的節點 CRUD／reorder／狀態循環／指派＋樹編輯器前端（`project-detail.js` 的 `TreeEditorView`）。
-**看板／人員派工／甘特三個分頁目前只是前端佔位符**（`KanbanView`/`AssignmentView`/`GanttView`，皆顯示「開發中」），無實際功能。
-
-**待決的重大轉向（尚未動手）**：`docs/superpowers/specs/2026-08-08-missionboard-task-oriented-rewrite-design.md` 規劃把資料模型整個反過來——`wbs_nodes` 三層樹改為天生扁平獨立的 `tasks`＋選配兩層的 `task_categories`，看板變預設首頁，樹編輯器／人員派工／甘特三分頁本輪先移除。**此設計文件尚未實作，目前程式碼與 DB schema 仍是舊的 `wbs_nodes` 模型**（`sql/01_ddl.sql` 仍是 `wbs_nodes`/`wbs_presets`，無 `tasks`/`task_categories` 表）。若被要求接續這個重構，先讀該設計文件全文再動手；若只是在現行模型上修 bug 或加小功能，仍以 2026-07-17 的設計文件與下方「核心架構決策」為準。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
+`tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。看板（`KanbanView`）為專案詳情頁預設且唯一的分頁，可實際操作：拖曳卡片跨欄、建立任務、歸類、指派、狀態切換皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁已隨這次重構移除，若後續要重做，需依新的扁平任務模型另行設計，不可沿用舊 `wbs_nodes` 邏輯。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
 
 ## 專案定位
 
@@ -50,15 +47,15 @@ mvn test -Dtest=ClassName#methodName
 
 ## 核心架構決策（違反即是 bug）
 
-### 單一資料模型：WBS 節點即任務
+### 扁平任務模型：任務天生獨立，分類選配
 
-不做「規劃層＋執行層」雙模型。`wbs_nodes` 一張表，樹編輯器／看板／人員派工／甘特是同一份節點資料的四種檢視，無同步問題。
+不做樹狀階層。`tasks` 一張表即是唯一的工作單位，`category_id` 可為 NULL——任務不依附任何分類也能建立、指派、在看板拖曳，無「上層節點」概念。
 
-### 三層固定語意（後端強制上限）
+### 選配的兩層分類（service 層強制上限，非 DB CHECK）
 
-- L1 階段（SIT/UAT/PROD）、L2 大項類別——皆**不可派工**，狀態與日期由子節點即時彙總（全完成→DONE、部分→IN_PROGRESS、全未動→NOT_STARTED），**不落地**
-- L3 細項——唯一可派工層；`assignee_id`、`status`、`priority`、起迄日**僅 L3 儲存**，以 DB CHECK 約束保證（`level` 冗餘欄位就是為此存在）
-- L1/L2 名稱從 `wbs_presets` 選單帶入後**存文字快照**，改選單不影響既有專案；選單有 `section_id` 科別隔離（NULL＝全域預設）
+- `task_categories` 最多兩層（大類→子類），純粹用於歸類與篩選，**不可派工**、不持有 `assignee_id`/`status`/`priority`/起迄日——這些欄位只存在 `tasks`
+- 深度上限（禁止建立第三層）由 **service 層驗證**，DB 不設 CHECK 約束；違反即是 bug
+- 分類名稱從 `task_category_presets` 選單帶入後**存文字快照**，改選單不影響既有專案；選單有 `section_id` 科別隔離（NULL＝全域預設）
 
 ### 權限與安全（移植舊專案鐵則）
 
@@ -73,19 +70,17 @@ mvn test -Dtest=ClassName#methodName
 
 ## 前端模式
 
-專案詳情頁一次載入 `GET .../nodes`，四個 tab 共用同一份響應式資料；所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）。甘特為純 SVG 唯讀，無依賴線（YAGNI，v2 再議）。
-
-**目前僅樹編輯器分頁（`project-detail.js` 的 `TreeEditorView`）落實上述模式**；`KanbanView`/`AssignmentView`/`GanttView` 是顯示「開發中」的佔位元件，尚無資料綁定或互動邏輯。
+專案詳情頁一次載入任務與分類資料，看板（`project-detail.js` 的 `KanbanView`）是預設且唯一落地的檢視。所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）：拖曳卡片跨欄呼叫 `move` 端點、建立任務預設「未歸類」（`category_id` 為 NULL）、點卡片開 modal 編輯歸類／指派／狀態。
 
 ## 測試重點
 
-權限矩陣（4 角色 × 讀／寫／封存）、三層深度上限、「僅 L3 可派工／可設狀態」約束、父層彙總邏輯、reorder 跨父搬移、移除成員解除指派。
+權限矩陣（4 角色 × 讀／寫／封存，套用到 `tasks`／`task_categories` 的 CRUD）、任務可獨立存在（`category_id = NULL` 建立/查詢/指派/看板拖曳皆正常）、兩層深度上限（`task_categories` 第三層應被拒絕）、指派人須為專案成員／移除成員解除指派、看板 `move` 端點的欄內與跨欄重新編號、`task_category_presets` 科別隔離、IDOR（`task`／`task_category` 的 `project_id` 與 URL 路徑不一致應拒絕）。
 
 ## 驗證與完成定義（宣稱完成前必須全數通過）
 
 - [ ] `docker compose up -d` 成功，容器內 `psql` 確認 DDL 與測試帳號已載入
 - [ ] 應用程式實際啟動成功（附啟動記錄關鍵行）
-- [ ] 核心功能逐項實測（HTTP 回應 / 測試輸出為證），登入後四檢視（樹編輯器／看板／人員派工／甘特）可操作
+- [ ] 核心功能逐項實測（HTTP 回應 / 測試輸出為證），登入後看板可操作（拖曳、建立任務、歸類、指派）
 - [ ] **有畫面就有截圖**：主要頁面用 chrome-devtools 截圖附在回報中
 - [ ] console 無錯誤、版面無異常
 - [ ] commit 前跑過 `mvn test`
