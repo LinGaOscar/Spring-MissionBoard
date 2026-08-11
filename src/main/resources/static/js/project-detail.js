@@ -304,6 +304,12 @@
             ? [category.id, ...this.categories.filter(c => c.parentCategoryId === category.id).map(c => c.id)]
             : [category.id];
           this.categories = this.categories.filter(c => !removedIds.includes(c.id));
+          // 後端 ON DELETE SET NULL 讓被刪分類底下的任務落回未歸類；本地也要同步，
+          // 否則任務卡片編輯 modal 的「所屬類別」下拉選單會因 categoryId 對不到任何選項而顯示空白，
+          // 要等重新整理頁面才會變回「未歸類」
+          this.tasks.forEach(t => {
+            if (removedIds.includes(t.categoryId)) t.categoryId = null;
+          });
         } else {
           this.showToast(result.message || '刪除失敗');
         }
