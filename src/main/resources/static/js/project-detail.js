@@ -4,6 +4,7 @@
   const el = document.getElementById('detail-app');
   const projectId = Number(el.dataset.projectId);
   const canWrite = el.dataset.canWrite === 'true';
+  const sectionId = el.dataset.sectionId ? Number(el.dataset.sectionId) : null;
 
   async function api(url, options = {}) {
     // fetch 失敗（斷線）或伺服器回傳非 JSON（如 CSRF 過期時的 HTML 錯誤頁）都會在此拋出例外；
@@ -27,6 +28,7 @@
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
+      sectionId: { type: Number, default: null },
     },
     data() {
       return {
@@ -44,7 +46,28 @@
           form: { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null },
         },
         toastMessage: '', toastTimer: null,
+        categoryPanelOpen: false,
+        presetsLoaded: false,
+        stagePresets: [],
+        categoryPresets: [],
+        presetPicker: null,       // { parentCategoryId: null|number } 開啟中的選單挑選器；null 表示未開啟
+        editingCategoryId: null,
+        categoryNameDraft: '',
+        draggingCategoryId: null,
       };
+    },
+    computed: {
+      categoryTree() {
+        const stages = this.categories
+          .filter(c => c.parentCategoryId == null)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        return stages.map(stage => ({
+          ...stage,
+          children: this.categories
+            .filter(c => c.parentCategoryId === stage.id)
+            .sort((a, b) => a.sortOrder - b.sortOrder),
+        }));
+      },
     },
     methods: {
       emptyForm() {
@@ -215,6 +238,116 @@
           this.showToast(result.message || '刪除失敗');
         }
       },
+      async loadCategoryPresets() {
+        const [stageRes, categoryRes] = await Promise.all([
+          api(`/api/task-category-presets?type=STAGE&sectionId=${this.sectionId}`),
+          api(`/api/task-category-presets?type=CATEGORY&sectionId=${this.sectionId}`),
+        ]);
+        this.stagePresets = stageRes.success ? stageRes.data : [];
+        this.categoryPresets = categoryRes.success ? categoryRes.data : [];
+        this.presetsLoaded = true;
+        if (!stageRes.success || !categoryRes.success) {
+          this.showToast(stageRes.message || categoryRes.message || '選單載入失敗');
+        }
+      },
+      async openPresetPicker(parentCategoryId) {
+        this.presetPicker = { parentCategoryId };
+        if (!this.presetsLoaded) {
+          await this.loadCategoryPresets();
+        }
+      },
+      closePresetPicker() {
+        this.presetPicker = null;
+      },
+      async createCategoryFromPreset(presetId) {
+        const parentCategoryId = this.presetPicker.parentCategoryId;
+        this.presetPicker = null;
+        const result = await api(`/api/projects/${this.projectId}/task-categories`, {
+          method: 'POST',
+          body: JSON.stringify({ parentCategoryId, presetId, sortOrder: null }),
+        });
+        if (result.success) {
+          this.categories.push(result.data);
+        } else {
+          this.showToast(result.message || '新增分類失敗');
+        }
+      },
+      startEditCategoryName(category) {
+        if (!this.canWrite) return;
+        this.editingCategoryId = category.id;
+        this.categoryNameDraft = category.name;
+      },
+      async commitCategoryName(category) {
+        if (this.editingCategoryId !== category.id) return;
+        this.editingCategoryId = null;
+        const name = this.categoryNameDraft.trim();
+        if (!name || name === category.name) return;
+        const prev = category.name;
+        category.name = name;
+        const result = await api(`/api/projects/${this.projectId}/task-categories/${category.id}`, {
+          method: 'PUT', body: JSON.stringify({ name }),
+        });
+        if (!result.success) {
+          category.name = prev;
+          this.showToast(result.message || '改名失敗');
+        }
+      },
+      async deleteCategory(category) {
+        const hasChildren = this.categories.some(c => c.parentCategoryId === category.id);
+        const msg = hasChildren
+          ? `確定刪除「${category.name}」？其下所有子類別將一併刪除，相關任務會變成未歸類。`
+          : `確定刪除「${category.name}」？相關任務會變成未歸類。`;
+        if (!confirm(msg)) return;
+        const result = await api(`/api/projects/${this.projectId}/task-categories/${category.id}`, { method: 'DELETE' });
+        if (result.success) {
+          const removedIds = hasChildren
+            ? [category.id, ...this.categories.filter(c => c.parentCategoryId === category.id).map(c => c.id)]
+            : [category.id];
+          this.categories = this.categories.filter(c => !removedIds.includes(c.id));
+        } else {
+          this.showToast(result.message || '刪除失敗');
+        }
+      },
+      onCategoryDragStart(category, ev) {
+        if (!this.canWrite) return;
+        this.draggingCategoryId = category.id;
+        ev.dataTransfer.effectAllowed = 'move';
+      },
+      // 只在同一層內重新排序：跨層（parentCategoryId 不同）一律忽略，不送任何請求
+      async onCategoryDrop(targetCategory) {
+        const draggingId = this.draggingCategoryId;
+        this.draggingCategoryId = null;
+        if (draggingId == null || draggingId === targetCategory.id) return;
+        const dragging = this.categories.find(c => c.id === draggingId);
+        if (!dragging || dragging.parentCategoryId !== targetCategory.parentCategoryId) return;
+
+        const siblings = this.categories
+          .filter(c => c.parentCategoryId === dragging.parentCategoryId)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        const fromIdx = siblings.findIndex(c => c.id === dragging.id);
+        const toIdx = siblings.findIndex(c => c.id === targetCategory.id);
+        siblings.splice(fromIdx, 1);
+        siblings.splice(toIdx, 0, dragging);
+
+        const changed = [];
+        siblings.forEach((c, i) => {
+          if (c.sortOrder !== i) {
+            c.sortOrder = i;
+            changed.push(c);
+          }
+        });
+        if (changed.length === 0) return;
+
+        const results = await Promise.all(changed.map(c =>
+          api(`/api/projects/${this.projectId}/task-categories/${c.id}`, {
+            method: 'PUT', body: JSON.stringify({ sortOrder: c.sortOrder }),
+          })
+        ));
+        if (results.some(r => !r.success)) {
+          this.showToast('排序失敗，已重新載入');
+          await this.loadAll();
+        }
+      },
     },
     mounted() {
       this.loadAll();
@@ -223,6 +356,65 @@
       <div>
         <div class="kanban-toolbar" v-if="canWrite">
           <button class="btn btn-primary" @click="openCreate">新增任務</button>
+          <span class="preset-picker-anchor">
+            <button class="btn" @click="categoryPanelOpen = !categoryPanelOpen">
+              分類管理 {{ categoryPanelOpen ? '▴' : '▾' }}
+            </button>
+          </span>
+        </div>
+        <div v-if="categoryPanelOpen" class="category-panel">
+          <div v-for="stage in categoryTree" :key="stage.id" class="category-row-group">
+            <div class="category-row"
+                 :draggable="canWrite"
+                 @dragstart="onCategoryDragStart(stage, $event)"
+                 @dragover.prevent
+                 @drop="onCategoryDrop(stage)">
+              <span class="category-handle">⠿</span>
+              <span v-if="editingCategoryId !== stage.id" class="category-name" @dblclick="startEditCategoryName(stage)">{{ stage.name }}</span>
+              <input v-else class="category-name-input" v-model="categoryNameDraft"
+                     @blur="commitCategoryName(stage)" @keyup.enter="commitCategoryName(stage)" @keyup.escape="editingCategoryId = null" />
+              <span class="category-row-actions" v-if="canWrite">
+                <span class="preset-picker-anchor">
+                  <button class="btn btn-sm" @click="openPresetPicker(stage.id)">+子類別</button>
+                  <div v-if="presetPicker && presetPicker.parentCategoryId === stage.id" class="preset-picker-popover">
+                    <p>選擇子類別選單項目</p>
+                    <ul>
+                      <li v-for="p in categoryPresets" :key="p.id">
+                        <button class="btn btn-sm" @click="createCategoryFromPreset(p.id)">{{ p.name }}</button>
+                      </li>
+                    </ul>
+                    <button class="btn btn-sm" @click="closePresetPicker">取消</button>
+                  </div>
+                </span>
+                <button class="btn btn-sm btn-danger" @click="deleteCategory(stage)">刪除</button>
+              </span>
+            </div>
+            <div v-for="cat in stage.children" :key="cat.id" class="category-row category-row-child"
+                 :draggable="canWrite"
+                 @dragstart="onCategoryDragStart(cat, $event)"
+                 @dragover.prevent
+                 @drop="onCategoryDrop(cat)">
+              <span class="category-handle">⠿</span>
+              <span v-if="editingCategoryId !== cat.id" class="category-name" @dblclick="startEditCategoryName(cat)">{{ cat.name }}</span>
+              <input v-else class="category-name-input" v-model="categoryNameDraft"
+                     @blur="commitCategoryName(cat)" @keyup.enter="commitCategoryName(cat)" @keyup.escape="editingCategoryId = null" />
+              <span class="category-row-actions" v-if="canWrite">
+                <button class="btn btn-sm btn-danger" @click="deleteCategory(cat)">刪除</button>
+              </span>
+            </div>
+          </div>
+          <span class="preset-picker-anchor" v-if="canWrite">
+            <button class="btn btn-sm" @click="openPresetPicker(null)">+ 新增階段</button>
+            <div v-if="presetPicker && presetPicker.parentCategoryId === null" class="preset-picker-popover">
+              <p>選擇階段選單項目</p>
+              <ul>
+                <li v-for="p in stagePresets" :key="p.id">
+                  <button class="btn btn-sm" @click="createCategoryFromPreset(p.id)">{{ p.name }}</button>
+                </li>
+              </ul>
+              <button class="btn btn-sm" @click="closePresetPicker">取消</button>
+            </div>
+          </span>
         </div>
         <p v-if="loading">載入中...</p>
         <div v-else class="kanban">
@@ -291,9 +483,9 @@
 
   const app = createApp({
     data() {
-      return { projectId, canWrite };
+      return { projectId, canWrite, sectionId };
     },
-    template: `<kanban-view :project-id="projectId" :can-write="canWrite" />`,
+    template: `<kanban-view :project-id="projectId" :can-write="canWrite" :section-id="sectionId" />`,
   });
 
   app.component('kanban-view', KanbanView);

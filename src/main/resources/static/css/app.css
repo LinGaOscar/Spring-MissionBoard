@@ -69,3 +69,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .task-card-title { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.4rem; }
 .task-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #636e72; }
 .task-due.overdue { color: #d63031; font-weight: 700; }
+.category-panel { background:#fff; border:1px solid #dfe6e9; border-radius:8px; padding:1rem 1.25rem; margin-bottom:1.5rem; }
+.category-row-group { margin-bottom:0.4rem; }
+.category-row { display:flex; align-items:center; gap:0.5rem; padding:0.4rem 0.25rem; border-radius:4px; cursor:grab; }
+.category-row:active { cursor:grabbing; }
+.category-row-child { padding-left:1.75rem; }
+.category-handle { color:#b2bec3; font-size:0.9rem; }
+.category-name { flex:1; }
+.category-name-input { flex:1; padding:0.2rem 0.4rem; border:1px solid #0984e3; border-radius:4px; }
+.category-row-actions { display:flex; align-items:center; gap:0.25rem; margin-left:auto; }
+.preset-picker-anchor { position:relative; display:inline-block; }
+.preset-picker-popover { position:absolute; top:calc(100% + 4px); left:0; background:#fff; border:1px solid #dfe6e9; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.12); z-index:300; min-width:180px; padding:0.6rem; }
+.preset-picker-popover p { font-size:0.8rem; color:#636e72; margin-bottom:0.4rem; }
+.preset-picker-popover ul { list-style:none; margin:0 0 0.4rem; padding:0; }
+.preset-picker-popover li { margin-bottom:0.25rem; }
