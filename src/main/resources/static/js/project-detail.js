@@ -23,6 +23,13 @@
     }
   }
 
+  // 已完成的任務不再警示逾期，避免歷史卡片一片紅；用本地日期字串比對，避免 toISOString 的 UTC 誤差
+  function isOverdueDate(t) {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    return !!t.dueDate && t.status !== 'DONE' && t.dueDate < today;
+  }
+
   const KanbanView = defineComponent({
     name: 'KanbanView',
     props: {
@@ -107,11 +114,8 @@
       tasksIn(status) {
         return this.tasks.filter(t => t.status === status).sort((a, b) => a.sortOrder - b.sortOrder);
       },
-      // 已完成的任務不再警示逾期，避免歷史卡片一片紅；用本地日期字串比對，避免 toISOString 的 UTC 誤差
       isOverdue(t) {
-        const now = new Date();
-        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        return !!t.dueDate && t.status !== 'DONE' && t.dueDate < today;
+        return isOverdueDate(t);
       },
       onDragStart(t, ev) {
         this.dragging = t;
@@ -487,13 +491,152 @@
     `,
   });
 
+  const AssignmentView = defineComponent({
+    name: 'AssignmentView',
+    props: {
+      projectId: { type: Number, required: true },
+      canWrite: { type: Boolean, default: false },
+    },
+    data() {
+      return {
+        tasks: [], members: [],
+        loading: true,
+        showDone: false,
+        dragging: null,
+        dragOverAssignee: undefined, // undefined=未拖曳中；null=懸停在「未指派」欄；number=懸停在該成員欄
+        toastMessage: '', toastTimer: null,
+      };
+    },
+    computed: {
+      columns() {
+        return [{ assigneeId: null, label: '未指派' }, ...this.members.map(m => ({ assigneeId: m.userId, label: m.displayName }))];
+      },
+    },
+    methods: {
+      async loadAll() {
+        this.loading = true;
+        try {
+          const [tasksRes, membersRes] = await Promise.all([
+            api(`/api/projects/${this.projectId}/tasks`),
+            api(`/api/projects/${this.projectId}/members`),
+          ]);
+          this.tasks = tasksRes.success ? tasksRes.data : [];
+          this.members = membersRes.success ? membersRes.data : [];
+          if (!tasksRes.success || !membersRes.success) {
+            this.showToast(tasksRes.message || membersRes.message || '載入失敗，請重新整理');
+          }
+        } catch (e) {
+          this.showToast('載入失敗，請重新整理');
+        } finally {
+          this.loading = false;
+        }
+      },
+      showToast(message) {
+        this.toastMessage = message;
+        clearTimeout(this.toastTimer);
+        this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, 3000);
+      },
+      isOverdue(t) {
+        return isOverdueDate(t);
+      },
+      statusLabel(status) {
+        return { NOT_STARTED: '未開始', IN_PROGRESS: '進行中', DONE: '已完成' }[status];
+      },
+      // 依到期日升冪排序，無到期日排最後；到期日相同（含都無到期日）依 id 升冪，穩定排序不需額外欄位
+      tasksFor(assigneeId) {
+        return this.tasks
+          .filter(t => t.assigneeId === assigneeId && (this.showDone || t.status !== 'DONE'))
+          .sort((a, b) => {
+            if (a.dueDate == null && b.dueDate == null) return a.id - b.id;
+            if (a.dueDate == null) return 1;
+            if (b.dueDate == null) return -1;
+            if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+            return a.id - b.id;
+          });
+      },
+      onDragStart(t, ev) {
+        this.dragging = t;
+        ev.dataTransfer.effectAllowed = 'move';
+      },
+      async onDrop(assigneeId) {
+        if (!this.dragging || !this.canWrite) return;
+        const task = this.dragging;
+        this.dragging = null;
+        this.dragOverAssignee = undefined;
+        if (task.assigneeId === assigneeId) return;
+        await this.updateAssignee(task, assigneeId);
+      },
+      // 樂觀更新要連 assigneeDisplayName 一起改，否則失敗回滾或欄位重新分組時會找不到對應成員
+      async updateAssignee(task, assigneeId) {
+        const prevId = task.assigneeId, prevName = task.assigneeDisplayName;
+        task.assigneeId = assigneeId;
+        const member = this.members.find(m => m.userId === assigneeId);
+        task.assigneeDisplayName = member ? member.displayName : null;
+        const result = await api(`/api/projects/${this.projectId}/tasks/${task.id}/assignee`, {
+          method: 'PATCH', body: JSON.stringify({ assigneeId }),
+        });
+        if (!result.success) {
+          task.assigneeId = prevId;
+          task.assigneeDisplayName = prevName;
+          this.showToast(result.message || '指派失敗');
+        }
+      },
+    },
+    mounted() {
+      this.loadAll();
+    },
+    template: `
+      <div>
+        <div class="assignment-toolbar">
+          <label class="assignment-toggle">
+            <input type="checkbox" v-model="showDone" /> 顯示已完成
+          </label>
+        </div>
+        <p v-if="loading">載入中...</p>
+        <div v-else class="assignment-board">
+          <div v-for="col in columns" :key="col.assigneeId === null ? 'unassigned' : col.assigneeId"
+               class="kanban-col assignment-col"
+               :class="{ 'drag-over': dragOverAssignee === col.assigneeId }"
+               @dragover.prevent="dragOverAssignee = col.assigneeId"
+               @dragleave="dragOverAssignee = undefined"
+               @drop="onDrop(col.assigneeId)">
+            <div class="kanban-col-header">
+              <span>{{ col.label }}</span>
+              <span class="kanban-col-count">{{ tasksFor(col.assigneeId).length }}</span>
+            </div>
+            <div v-for="t in tasksFor(col.assigneeId)" :key="t.id"
+                 class="task-card" :class="['priority-' + (t.priority || 'NONE'), { dragging: dragging === t }]"
+                 :draggable="canWrite" @dragstart="onDragStart(t, $event)">
+              <div class="task-card-title">{{ t.title }}</div>
+              <div class="task-card-meta">
+                <span>{{ statusLabel(t.status) }}</span>
+                <span class="task-due" :class="{ overdue: isOverdue(t) }" v-if="t.dueDate">{{ t.dueDate }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
+      </div>
+    `,
+  });
+
   const app = createApp({
     data() {
-      return { projectId, canWrite, sectionId };
+      return { projectId, canWrite, sectionId, activeTab: 'kanban' };
     },
-    template: `<kanban-view :project-id="projectId" :can-write="canWrite" :section-id="sectionId" />`,
+    template: `
+      <div>
+        <div class="detail-tabs">
+          <button class="btn" :class="{ 'btn-primary': activeTab === 'kanban' }" @click="activeTab = 'kanban'">看板</button>
+          <button class="btn" :class="{ 'btn-primary': activeTab === 'assignment' }" @click="activeTab = 'assignment'">人員派工</button>
+        </div>
+        <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" />
+        <assignment-view v-else :project-id="projectId" :can-write="canWrite" />
+      </div>
+    `,
   });
 
   app.component('kanban-view', KanbanView);
+  app.component('assignment-view', AssignmentView);
   app.mount('#detail-app');
 })();
