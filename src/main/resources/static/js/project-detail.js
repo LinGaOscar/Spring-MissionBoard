@@ -30,8 +30,23 @@
     return !!t.dueDate && t.status !== 'DONE' && t.dueDate < today;
   }
 
+  // KanbanView 與 AssignmentView 共用的 toast 提示邏輯，抽成 mixin 避免兩處維護同一份計時器邏輯
+  const toastMixin = {
+    data() {
+      return { toastMessage: '', toastTimer: null };
+    },
+    methods: {
+      showToast(message) {
+        this.toastMessage = message;
+        clearTimeout(this.toastTimer);
+        this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, 3000);
+      },
+    },
+  };
+
   const KanbanView = defineComponent({
     name: 'KanbanView',
+    mixins: [toastMixin],
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
@@ -52,7 +67,6 @@
           open: false, taskId: null,
           form: { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null },
         },
-        toastMessage: '', toastTimer: null,
         categoryPanelOpen: false,
         presetsLoaded: false,
         stagePresets: [],
@@ -99,11 +113,6 @@
         } finally {
           this.loading = false;
         }
-      },
-      showToast(message) {
-        this.toastMessage = message;
-        clearTimeout(this.toastTimer);
-        this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, 3000);
       },
       queueTaskWrite(taskId, task) {
         const prev = this.taskWriteQueue[taskId] || Promise.resolve();
@@ -493,6 +502,7 @@
 
   const AssignmentView = defineComponent({
     name: 'AssignmentView',
+    mixins: [toastMixin],
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
@@ -504,7 +514,6 @@
         showDone: false,
         dragging: null,
         dragOverAssignee: undefined, // undefined=未拖曳中；null=懸停在「未指派」欄；number=懸停在該成員欄
-        toastMessage: '', toastTimer: null,
       };
     },
     computed: {
@@ -530,11 +539,6 @@
         } finally {
           this.loading = false;
         }
-      },
-      showToast(message) {
-        this.toastMessage = message;
-        clearTimeout(this.toastTimer);
-        this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, 3000);
       },
       isOverdue(t) {
         return isOverdueDate(t);
