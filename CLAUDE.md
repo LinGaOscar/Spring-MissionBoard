@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **已完成任務導向模型重構，這是現行架構。** 真相來源是 `docs/superpowers/specs/2026-08-08-missionboard-task-oriented-rewrite-design.md`；動手前先讀它，本檔僅摘錄關鍵決策。
 
-`tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。看板（`KanbanView`）為專案詳情頁預設且唯一的分頁，可實際操作：拖曳卡片跨欄、建立任務、歸類、指派皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁已隨這次重構移除，若後續要重做，需依新的扁平任務模型另行設計，不可沿用舊 `wbs_nodes` 邏輯。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
+`tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。專案詳情頁為雙分頁：看板（`KanbanView`，預設分頁）可拖曳卡片跨欄、建立任務、歸類、指派；人員派工（`AssignmentView`）依成員分欄，可拖曳卡片跨欄改指派人，皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁曾隨重構移除，人員派工已依新的扁平任務模型重做完成；樹編輯器／甘特若後續要重做，需另行設計，不可沿用舊 `wbs_nodes` 邏輯。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
 
 ## 專案定位
 
@@ -70,7 +70,7 @@ mvn test -Dtest=ClassName#methodName
 
 ## 前端模式
 
-專案詳情頁一次載入任務與分類資料，看板（`project-detail.js` 的 `KanbanView`）是預設且唯一落地的檢視。所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）：拖曳卡片跨欄呼叫 `move` 端點、建立任務預設「未歸類」（`category_id` 為 NULL）、點卡片開 modal 編輯歸類／指派／優先度／日期。
+專案詳情頁（`project-detail.js`）為雙分頁，各自獨立載入資料、以 `v-if` 切換（非 `v-show`，避免兩分頁資料不同步）：看板（`KanbanView`，預設分頁）一次載入任務與分類資料；人員派工（`AssignmentView`）載入任務與成員資料，依成員分欄（含「未指派」欄）呈現，v1 僅支援拖曳改指派，不支援點卡片開 modal（完整編輯回看板做）。所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）：看板拖曳卡片跨欄呼叫 `move` 端點、建立任務預設「未歸類」（`category_id` 為 NULL）、點卡片開 modal 編輯歸類／指派／優先度／日期；人員派工拖曳卡片跨欄呼叫 `assignee` 端點，欄內排序為固定規則（依到期日，無到期日排最後）。
 
 ## 測試重點
 
