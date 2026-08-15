@@ -44,9 +44,146 @@
     },
   };
 
+  // KanbanView 與 WbsView 共用：任務新增/編輯/刪除的 modal 邏輯（歸類/指派/優先度/日期），
+  // 兩個分頁都需要開同一顆 modal，抽出來避免各自維護一份
+  const taskModalMixin = {
+    data() {
+      return {
+        modal: {
+          open: false, taskId: null,
+          form: { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null },
+        },
+      };
+    },
+    methods: {
+      emptyForm() {
+        return { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null };
+      },
+      openCreate() {
+        this.modal = { open: true, taskId: null, form: this.emptyForm() };
+      },
+      openEdit(t) {
+        this.modal = {
+          open: true, taskId: t.id,
+          form: {
+            title: t.title, description: t.description || '', assigneeId: t.assigneeId,
+            categoryId: t.categoryId, priority: t.priority, startDate: t.startDate, dueDate: t.dueDate,
+          },
+        };
+      },
+      // 建立與編輯共用：CreateRequest 只收 categoryId/title/description，
+      // 指派人/優先度/日期一律等有了 taskId 後跟編輯流程共用同一段 PUT+PATCH，不重複組裝欄位邏輯
+      async saveTask() {
+        const form = this.modal.form;
+        if (!form.title || !form.title.trim()) {
+          this.showToast('標題不可為空');
+          return;
+        }
+
+        let taskId = this.modal.taskId;
+        if (!taskId) {
+          const createResult = await api(`/api/projects/${this.projectId}/tasks`, {
+            method: 'POST',
+            body: JSON.stringify({ categoryId: form.categoryId, title: form.title.trim(), description: form.description || null }),
+          });
+          if (!createResult.success) {
+            this.showToast(createResult.message || '新增失敗');
+            return;
+          }
+          taskId = createResult.data.id;
+        }
+
+        const [updateResult, assigneeResult] = await Promise.all([
+          api(`/api/projects/${this.projectId}/tasks/${taskId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              title: form.title.trim(), description: form.description || null,
+              categoryId: form.categoryId, priority: form.priority || null,
+              startDate: form.startDate || null, dueDate: form.dueDate || null,
+            }),
+          }),
+          api(`/api/projects/${this.projectId}/tasks/${taskId}/assignee`, {
+            method: 'PATCH', body: JSON.stringify({ assigneeId: form.assigneeId }),
+          }),
+        ]);
+
+        if (updateResult.success && assigneeResult.success) {
+          this.modal.open = false;
+          await this.loadAll();
+        } else {
+          this.showToast(updateResult.message || assigneeResult.message || '儲存失敗');
+        }
+      },
+      async deleteTask() {
+        if (!confirm('確定刪除此任務？')) return;
+        const result = await api(`/api/projects/${this.projectId}/tasks/${this.modal.taskId}`, { method: 'DELETE' });
+        if (result.success) {
+          this.modal.open = false;
+          await this.loadAll();
+        } else {
+          this.showToast(result.message || '刪除失敗');
+        }
+      },
+    },
+  };
+
+  // KanbanView 與 WbsView 共用：任務編輯 modal 的畫面本身（表單欄位＋儲存/刪除/取消按鈕）。
+  // 純展示元件，不呼叫 API——modal.form 透過 v-model 直接改 modal 這個物件（父層傳進來的同一個參照，
+  // 不是重新賦值 prop 本身，Vue 不會警告），實際存檔/刪除的 API 呼叫仍由父層的 taskModalMixin 負責，
+  // 這裡只負責 emit 事件通知父層
+  const TaskModal = defineComponent({
+    name: 'TaskModal',
+    props: {
+      modal: { type: Object, required: true },
+      members: { type: Array, required: true },
+      categories: { type: Array, required: true },
+      canWrite: { type: Boolean, default: false },
+    },
+    emits: ['save', 'delete', 'close'],
+    template: `
+      <div class="modal-overlay" @click.self="$emit('close')">
+        <div class="modal">
+          <h3>{{ modal.taskId ? '編輯任務' : '新增任務' }}</h3>
+          <div class="form-group"><label>標題</label><input v-model="modal.form.title" /></div>
+          <div class="form-group"><label>描述</label><textarea v-model="modal.form.description" rows="4"></textarea></div>
+          <div class="form-group">
+            <label>指派人</label>
+            <select v-model="modal.form.assigneeId">
+              <option :value="null">未指派</option>
+              <option v-for="m in members" :key="m.userId" :value="m.userId">{{ m.displayName }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>所屬類別</label>
+            <select v-model="modal.form.categoryId">
+              <option :value="null">未歸類</option>
+              <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>優先度</label>
+            <select v-model="modal.form.priority">
+              <option :value="null">未設定</option>
+              <option value="HIGH">高</option>
+              <option value="MEDIUM">中</option>
+              <option value="LOW">低</option>
+            </select>
+          </div>
+          <div class="form-group"><label>起始日</label><input type="date" v-model="modal.form.startDate" /></div>
+          <div class="form-group"><label>到期日</label><input type="date" v-model="modal.form.dueDate" /></div>
+          <div class="modal-actions">
+            <button class="btn btn-primary" @click="$emit('save')" :disabled="!canWrite">儲存</button>
+            <button v-if="modal.taskId && canWrite" class="btn btn-danger" @click="$emit('delete')">刪除</button>
+            <button class="btn" @click="$emit('close')">取消</button>
+          </div>
+        </div>
+      </div>
+    `,
+  });
+
   const KanbanView = defineComponent({
     name: 'KanbanView',
-    mixins: [toastMixin],
+    mixins: [toastMixin, taskModalMixin],
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
@@ -63,10 +200,6 @@
         ],
         dragging: null, dragOverCol: null, dragIndex: 0,
         taskWriteQueue: {},  // 同一任務的連續寫入序列化，避免拖曳與 modal 編輯併發時後完成者用舊快照蓋掉新資料（遺失更新）
-        modal: {
-          open: false, taskId: null,
-          form: { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null },
-        },
         categoryPanelOpen: false,
         presetsLoaded: false,
         stagePresets: [],
@@ -91,9 +224,6 @@
       },
     },
     methods: {
-      emptyForm() {
-        return { title: '', description: '', assigneeId: null, categoryId: null, priority: null, startDate: null, dueDate: null };
-      },
       async loadAll() {
         this.loading = true;
         try {
@@ -185,71 +315,6 @@
             await this.loadAll();
           }
         });
-      },
-      openCreate() {
-        this.modal = { open: true, taskId: null, form: this.emptyForm() };
-      },
-      openEdit(t) {
-        this.modal = {
-          open: true, taskId: t.id,
-          form: {
-            title: t.title, description: t.description || '', assigneeId: t.assigneeId,
-            categoryId: t.categoryId, priority: t.priority, startDate: t.startDate, dueDate: t.dueDate,
-          },
-        };
-      },
-      // 建立與編輯共用：CreateRequest 只收 categoryId/title/description，
-      // 指派人/優先度/日期一律等有了 taskId 後跟編輯流程共用同一段 PUT+PATCH，不重複組裝欄位邏輯
-      async saveTask() {
-        const form = this.modal.form;
-        if (!form.title || !form.title.trim()) {
-          this.showToast('標題不可為空');
-          return;
-        }
-
-        let taskId = this.modal.taskId;
-        if (!taskId) {
-          const createResult = await api(`/api/projects/${this.projectId}/tasks`, {
-            method: 'POST',
-            body: JSON.stringify({ categoryId: form.categoryId, title: form.title.trim(), description: form.description || null }),
-          });
-          if (!createResult.success) {
-            this.showToast(createResult.message || '新增失敗');
-            return;
-          }
-          taskId = createResult.data.id;
-        }
-
-        const [updateResult, assigneeResult] = await Promise.all([
-          api(`/api/projects/${this.projectId}/tasks/${taskId}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              title: form.title.trim(), description: form.description || null,
-              categoryId: form.categoryId, priority: form.priority || null,
-              startDate: form.startDate || null, dueDate: form.dueDate || null,
-            }),
-          }),
-          api(`/api/projects/${this.projectId}/tasks/${taskId}/assignee`, {
-            method: 'PATCH', body: JSON.stringify({ assigneeId: form.assigneeId }),
-          }),
-        ]);
-
-        if (updateResult.success && assigneeResult.success) {
-          this.modal.open = false;
-          await this.loadAll();
-        } else {
-          this.showToast(updateResult.message || assigneeResult.message || '儲存失敗');
-        }
-      },
-      async deleteTask() {
-        if (!confirm('確定刪除此任務？')) return;
-        const result = await api(`/api/projects/${this.projectId}/tasks/${this.modal.taskId}`, { method: 'DELETE' });
-        if (result.success) {
-          this.modal.open = false;
-          await this.loadAll();
-        } else {
-          this.showToast(result.message || '刪除失敗');
-        }
       },
       async loadCategoryPresets() {
         const [stageRes, categoryRes] = await Promise.all([
@@ -458,43 +523,8 @@
             </div>
           </div>
         </div>
-        <div v-if="modal.open" class="modal-overlay" @click.self="modal.open = false">
-          <div class="modal">
-            <h3>{{ modal.taskId ? '編輯任務' : '新增任務' }}</h3>
-            <div class="form-group"><label>標題</label><input v-model="modal.form.title" /></div>
-            <div class="form-group"><label>描述</label><textarea v-model="modal.form.description" rows="4"></textarea></div>
-            <div class="form-group">
-              <label>指派人</label>
-              <select v-model="modal.form.assigneeId">
-                <option :value="null">未指派</option>
-                <option v-for="m in members" :key="m.userId" :value="m.userId">{{ m.displayName }}</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>所屬類別</label>
-              <select v-model="modal.form.categoryId">
-                <option :value="null">未歸類</option>
-                <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>優先度</label>
-              <select v-model="modal.form.priority">
-                <option :value="null">未設定</option>
-                <option value="HIGH">高</option>
-                <option value="MEDIUM">中</option>
-                <option value="LOW">低</option>
-              </select>
-            </div>
-            <div class="form-group"><label>起始日</label><input type="date" v-model="modal.form.startDate" /></div>
-            <div class="form-group"><label>到期日</label><input type="date" v-model="modal.form.dueDate" /></div>
-            <div class="modal-actions">
-              <button class="btn btn-primary" @click="saveTask" :disabled="!canWrite">儲存</button>
-              <button v-if="modal.taskId && canWrite" class="btn btn-danger" @click="deleteTask">刪除</button>
-              <button class="btn" @click="modal.open = false">取消</button>
-            </div>
-          </div>
-        </div>
+        <task-modal v-if="modal.open" :modal="modal" :members="members" :categories="categories" :can-write="canWrite"
+                    @save="saveTask" @delete="deleteTask" @close="modal.open = false" />
         <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
       </div>
     `,
@@ -642,5 +672,6 @@
 
   app.component('kanban-view', KanbanView);
   app.component('assignment-view', AssignmentView);
+  app.component('task-modal', TaskModal);
   app.mount('#detail-app');
 })();
