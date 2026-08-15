@@ -30,6 +30,33 @@
     return !!t.dueDate && t.status !== 'DONE' && t.dueDate < today;
   }
 
+  // 大類（parentCategoryId 為 null）→ 子類 兩層分組，KanbanView 與 WbsView 共用
+  function buildCategoryTree(categories) {
+    const stages = categories
+      .filter(c => c.parentCategoryId == null)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    return stages.map(stage => ({
+      ...stage,
+      children: categories
+        .filter(c => c.parentCategoryId === stage.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    }));
+  }
+
+  // 依到期日升冪排序，無到期日排最後；到期日相同（含都無到期日）依 id 升冪，穩定排序不需額外欄位。
+  // AssignmentView 與 WbsView 共用同一條規則
+  function sortByDueDate(list) {
+    return list.sort((a, b) => {
+      if (a.dueDate == null && b.dueDate == null) return a.id - b.id;
+      if (a.dueDate == null) return 1;
+      if (b.dueDate == null) return -1;
+      if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+      return a.id - b.id;
+    });
+  }
+
+  const STATUS_LABELS = { NOT_STARTED: '未開始', IN_PROGRESS: '進行中', DONE: '已完成' };
+
   // KanbanView 與 AssignmentView 共用的 toast 提示邏輯，抽成 mixin 避免兩處維護同一份計時器邏輯
   const toastMixin = {
     data() {
@@ -127,6 +154,42 @@
     },
   };
 
+  // KanbanView 與 WbsView 共用：載入 tasks/categories/members 三份資料、loading 狀態，
+  // 以及同一任務連續寫入時的序列化佇列（避免拖曳與 modal 編輯併發時後完成者用舊快照蓋掉新資料）
+  const taskBoardMixin = {
+    data() {
+      return { tasks: [], categories: [], members: [], loading: true, taskWriteQueue: {} };
+    },
+    methods: {
+      async loadAll() {
+        this.loading = true;
+        try {
+          const [tasksRes, categoriesRes, membersRes] = await Promise.all([
+            api(`/api/projects/${this.projectId}/tasks`),
+            api(`/api/projects/${this.projectId}/task-categories`),
+            api(`/api/projects/${this.projectId}/members`),
+          ]);
+          this.tasks = tasksRes.success ? tasksRes.data : [];
+          this.categories = categoriesRes.success ? categoriesRes.data : [];
+          this.members = membersRes.success ? membersRes.data : [];
+          if (!tasksRes.success || !categoriesRes.success || !membersRes.success) {
+            this.showToast(tasksRes.message || categoriesRes.message || membersRes.message || '載入失敗，請重新整理');
+          }
+        } catch (e) {
+          this.showToast('載入失敗，請重新整理');
+        } finally {
+          this.loading = false;
+        }
+      },
+      queueTaskWrite(taskId, task) {
+        const prev = this.taskWriteQueue[taskId] || Promise.resolve();
+        const next = prev.then(task, task);
+        this.taskWriteQueue[taskId] = next;
+        return next;
+      },
+    },
+  };
+
   // KanbanView 與 WbsView 共用：任務編輯 modal 的畫面本身（表單欄位＋儲存/刪除/取消按鈕）。
   // 純展示元件，不呼叫 API——modal.form 透過 v-model 直接改 modal 這個物件（父層傳進來的同一個參照，
   // 不是重新賦值 prop 本身，Vue 不會警告），實際存檔/刪除的 API 呼叫仍由父層的 taskModalMixin 負責，
@@ -183,7 +246,7 @@
 
   const KanbanView = defineComponent({
     name: 'KanbanView',
-    mixins: [toastMixin, taskModalMixin],
+    mixins: [toastMixin, taskBoardMixin, taskModalMixin],
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
@@ -191,15 +254,12 @@
     },
     data() {
       return {
-        tasks: [], categories: [], members: [],
-        loading: true,
         columns: [
           { status: 'NOT_STARTED', label: '未開始' },
           { status: 'IN_PROGRESS', label: '進行中' },
           { status: 'DONE', label: '已完成' },
         ],
         dragging: null, dragOverCol: null, dragIndex: 0,
-        taskWriteQueue: {},  // 同一任務的連續寫入序列化，避免拖曳與 modal 編輯併發時後完成者用舊快照蓋掉新資料（遺失更新）
         categoryPanelOpen: false,
         presetsLoaded: false,
         stagePresets: [],
@@ -212,44 +272,10 @@
     },
     computed: {
       categoryTree() {
-        const stages = this.categories
-          .filter(c => c.parentCategoryId == null)
-          .sort((a, b) => a.sortOrder - b.sortOrder);
-        return stages.map(stage => ({
-          ...stage,
-          children: this.categories
-            .filter(c => c.parentCategoryId === stage.id)
-            .sort((a, b) => a.sortOrder - b.sortOrder),
-        }));
+        return buildCategoryTree(this.categories);
       },
     },
     methods: {
-      async loadAll() {
-        this.loading = true;
-        try {
-          const [tasksRes, categoriesRes, membersRes] = await Promise.all([
-            api(`/api/projects/${this.projectId}/tasks`),
-            api(`/api/projects/${this.projectId}/task-categories`),
-            api(`/api/projects/${this.projectId}/members`),
-          ]);
-          this.tasks = tasksRes.success ? tasksRes.data : [];
-          this.categories = categoriesRes.success ? categoriesRes.data : [];
-          this.members = membersRes.success ? membersRes.data : [];
-          if (!tasksRes.success || !categoriesRes.success || !membersRes.success) {
-            this.showToast(tasksRes.message || categoriesRes.message || membersRes.message || '載入失敗，請重新整理');
-          }
-        } catch (e) {
-          this.showToast('載入失敗，請重新整理');
-        } finally {
-          this.loading = false;
-        }
-      },
-      queueTaskWrite(taskId, task) {
-        const prev = this.taskWriteQueue[taskId] || Promise.resolve();
-        const next = prev.then(task, task);
-        this.taskWriteQueue[taskId] = next;
-        return next;
-      },
       tasksIn(status) {
         return this.tasks.filter(t => t.status === status).sort((a, b) => a.sortOrder - b.sortOrder);
       },
@@ -574,19 +600,10 @@
         return isOverdueDate(t);
       },
       statusLabel(status) {
-        return { NOT_STARTED: '未開始', IN_PROGRESS: '進行中', DONE: '已完成' }[status];
+        return STATUS_LABELS[status];
       },
-      // 依到期日升冪排序，無到期日排最後；到期日相同（含都無到期日）依 id 升冪，穩定排序不需額外欄位
       tasksFor(assigneeId) {
-        return this.tasks
-          .filter(t => t.assigneeId === assigneeId && (this.showDone || t.status !== 'DONE'))
-          .sort((a, b) => {
-            if (a.dueDate == null && b.dueDate == null) return a.id - b.id;
-            if (a.dueDate == null) return 1;
-            if (b.dueDate == null) return -1;
-            if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
-            return a.id - b.id;
-          });
+        return sortByDueDate(this.tasks.filter(t => t.assigneeId === assigneeId && (this.showDone || t.status !== 'DONE')));
       },
       onDragStart(t, ev) {
         this.dragging = t;
@@ -654,6 +671,160 @@
     `,
   });
 
+  const WbsView = defineComponent({
+    name: 'WbsView',
+    mixins: [toastMixin, taskBoardMixin, taskModalMixin],
+    props: {
+      projectId: { type: Number, required: true },
+      canWrite: { type: Boolean, default: false },
+    },
+    data() {
+      return {
+        expandedState: {},
+        draggingTask: null,
+        dragOverCategoryId: undefined, // undefined=未拖曳中；null=懸停在「未歸類」；number=懸停在該分類節點
+      };
+    },
+    computed: {
+      categoryTree() {
+        return buildCategoryTree(this.categories);
+      },
+    },
+    methods: {
+      isOverdue(t) {
+        return isOverdueDate(t);
+      },
+      statusLabel(status) {
+        return STATUS_LABELS[status];
+      },
+      isExpanded(key) {
+        return this.expandedState[key] !== false;
+      },
+      toggleExpanded(key) {
+        this.expandedState[key] = !this.isExpanded(key);
+      },
+      directTasks(categoryId) {
+        return sortByDueDate(this.tasks.filter(t => t.categoryId === categoryId));
+      },
+      stageIds(stage) {
+        return [stage.id, ...stage.children.map(c => c.id)];
+      },
+      taskCount(ids) {
+        return this.tasks.filter(t => ids.includes(t.categoryId)).length;
+      },
+      completionLabel(ids) {
+        const list = this.tasks.filter(t => ids.includes(t.categoryId));
+        if (list.length === 0) return '--';
+        const done = list.filter(t => t.status === 'DONE').length;
+        return `${Math.round(done / list.length * 100)}%`;
+      },
+      onTaskDragStart(t, ev) {
+        if (!this.canWrite) return;
+        this.draggingTask = t;
+        ev.dataTransfer.effectAllowed = 'move';
+      },
+      async onCategoryNodeDrop(categoryId) {
+        if (!this.draggingTask || !this.canWrite) return;
+        const task = this.draggingTask;
+        this.draggingTask = null;
+        this.dragOverCategoryId = undefined;
+        if (task.categoryId === categoryId) return;
+        await this.moveTaskToCategory(task, categoryId);
+      },
+      // 拖曳只改 categoryId，其餘欄位原樣送出（跟 taskModalMixin 的 saveTask() 組 payload 方式相同），
+      // 不新增後端端點；走 taskWriteQueue 序列化，避免跟 modal 編輯併發時互相蓋資料
+      async moveTaskToCategory(task, categoryId) {
+        const prev = task.categoryId;
+        task.categoryId = categoryId;
+        await this.queueTaskWrite(task.id, async () => {
+          const result = await api(`/api/projects/${this.projectId}/tasks/${task.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              title: task.title, description: task.description || null,
+              categoryId, priority: task.priority || null,
+              startDate: task.startDate || null, dueDate: task.dueDate || null,
+            }),
+          });
+          if (!result.success) {
+            task.categoryId = prev;
+            this.showToast(result.message || '移動失敗');
+          }
+        });
+      },
+    },
+    mounted() {
+      this.loadAll();
+    },
+    template: `
+      <div>
+        <p v-if="loading">載入中...</p>
+        <div v-else class="wbs-tree">
+          <div class="wbs-node"
+               :class="{ 'drag-over': draggingTask && dragOverCategoryId === null }"
+               @dragover.prevent="dragOverCategoryId = null" @drop="onCategoryNodeDrop(null)">
+            <div class="wbs-node-header" @click="toggleExpanded('unassigned')">
+              <span class="wbs-node-toggle">{{ isExpanded('unassigned') ? '▾' : '▸' }}</span>
+              <span class="wbs-node-name">未歸類 ({{ taskCount([null]) }})</span>
+              <span class="wbs-node-summary">{{ completionLabel([null]) }}</span>
+            </div>
+            <div v-if="isExpanded('unassigned')" class="wbs-task-list">
+              <div v-for="t in directTasks(null)" :key="t.id" class="wbs-task-row"
+                   :class="['priority-' + (t.priority || 'NONE')]"
+                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)" @click="openEdit(t)">
+                <span class="wbs-task-title">{{ t.title }}</span>
+                <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
+                <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
+                <span class="wbs-task-due" :class="{ overdue: isOverdue(t) }">{{ t.dueDate || '--' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-for="stage in categoryTree" :key="stage.id" class="wbs-node"
+               :class="{ 'drag-over': draggingTask && dragOverCategoryId === stage.id }"
+               @dragover.prevent="dragOverCategoryId = stage.id" @drop="onCategoryNodeDrop(stage.id)">
+            <div class="wbs-node-header" @click="toggleExpanded(stage.id)">
+              <span class="wbs-node-toggle">{{ isExpanded(stage.id) ? '▾' : '▸' }}</span>
+              <span class="wbs-node-name">{{ stage.name }} ({{ taskCount(stageIds(stage)) }})</span>
+              <span class="wbs-node-summary">{{ completionLabel(stageIds(stage)) }}</span>
+            </div>
+            <div v-if="isExpanded(stage.id)" class="wbs-node-body">
+              <div v-for="t in directTasks(stage.id)" :key="t.id" class="wbs-task-row"
+                   :class="['priority-' + (t.priority || 'NONE')]"
+                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)" @click="openEdit(t)">
+                <span class="wbs-task-title">{{ t.title }}</span>
+                <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
+                <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
+                <span class="wbs-task-due" :class="{ overdue: isOverdue(t) }">{{ t.dueDate || '--' }}</span>
+              </div>
+              <div v-for="child in stage.children" :key="child.id" class="wbs-node wbs-node-child"
+                   :class="{ 'drag-over': draggingTask && dragOverCategoryId === child.id }"
+                   @dragover.prevent.stop="dragOverCategoryId = child.id" @drop.stop="onCategoryNodeDrop(child.id)">
+                <div class="wbs-node-header" @click="toggleExpanded(child.id)">
+                  <span class="wbs-node-toggle">{{ isExpanded(child.id) ? '▾' : '▸' }}</span>
+                  <span class="wbs-node-name">{{ child.name }} ({{ taskCount([child.id]) }})</span>
+                  <span class="wbs-node-summary">{{ completionLabel([child.id]) }}</span>
+                </div>
+                <div v-if="isExpanded(child.id)" class="wbs-task-list">
+                  <div v-for="t in directTasks(child.id)" :key="t.id" class="wbs-task-row"
+                       :class="['priority-' + (t.priority || 'NONE')]"
+                       :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)" @click="openEdit(t)">
+                    <span class="wbs-task-title">{{ t.title }}</span>
+                    <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
+                    <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
+                    <span class="wbs-task-due" :class="{ overdue: isOverdue(t) }">{{ t.dueDate || '--' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <task-modal v-if="modal.open" :modal="modal" :members="members" :categories="categories" :can-write="canWrite"
+                    @save="saveTask" @delete="deleteTask" @close="modal.open = false" />
+        <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
+      </div>
+    `,
+  });
+
   const app = createApp({
     data() {
       return { projectId, canWrite, sectionId, activeTab: 'kanban' };
@@ -663,9 +834,11 @@
         <div class="detail-tabs">
           <button class="btn" :class="{ 'btn-primary': activeTab === 'kanban' }" @click="activeTab = 'kanban'">看板</button>
           <button class="btn" :class="{ 'btn-primary': activeTab === 'assignment' }" @click="activeTab = 'assignment'">人員派工</button>
+          <button class="btn" :class="{ 'btn-primary': activeTab === 'wbs' }" @click="activeTab = 'wbs'">WBS 檢視</button>
         </div>
         <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" />
-        <assignment-view v-else :project-id="projectId" :can-write="canWrite" />
+        <assignment-view v-else-if="activeTab === 'assignment'" :project-id="projectId" :can-write="canWrite" />
+        <wbs-view v-else :project-id="projectId" :can-write="canWrite" />
       </div>
     `,
   });
@@ -673,5 +846,6 @@
   app.component('kanban-view', KanbanView);
   app.component('assignment-view', AssignmentView);
   app.component('task-modal', TaskModal);
+  app.component('wbs-view', WbsView);
   app.mount('#detail-app');
 })();
