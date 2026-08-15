@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **已完成任務導向模型重構，這是現行架構。** 真相來源是 `docs/superpowers/specs/2026-08-08-missionboard-task-oriented-rewrite-design.md`；動手前先讀它，本檔僅摘錄關鍵決策。
 
-`tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。專案詳情頁為雙分頁：看板（`KanbanView`，預設分頁）可拖曳卡片跨欄、建立任務、歸類、指派；人員派工（`AssignmentView`）依成員分欄，可拖曳卡片跨欄改指派人，皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁曾隨重構移除，人員派工已依新的扁平任務模型重做完成；樹編輯器／甘特若後續要重做，需另行設計，不可沿用舊 `wbs_nodes` 邏輯。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
+`tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。專案詳情頁為三分頁：看板（`KanbanView`，預設分頁）可拖曳卡片跨欄、建立任務、歸類、指派；人員派工（`AssignmentView`）依成員分欄，可拖曳卡片跨欄改指派人；WBS 檢視（`WbsView`）依兩層分類（大類/子類）呈現樹狀結構＋固定的「未歸類」節點，可拖曳任務改變所屬大類/子類，皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁曾隨重構移除，人員派工與 WBS 檢視已依新的扁平任務模型重做完成，僅剩甘特分頁待補；若後續要重做，需另行設計，不可沿用舊 `wbs_nodes` 邏輯。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
 
 ## 專案定位
 
@@ -70,7 +70,7 @@ mvn test -Dtest=ClassName#methodName
 
 ## 前端模式
 
-專案詳情頁（`project-detail.js`）為雙分頁，各自獨立載入資料、以 `v-if` 切換（非 `v-show`，避免兩分頁資料不同步）：看板（`KanbanView`，預設分頁）一次載入任務與分類資料；人員派工（`AssignmentView`）載入任務與成員資料，依成員分欄（含「未指派」欄）呈現，v1 僅支援拖曳改指派，不支援點卡片開 modal（完整編輯回看板做）。兩分頁共用 `toastMixin`（提示訊息與計時器），避免重複邏輯。所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）：看板拖曳卡片跨欄呼叫 `move` 端點、建立任務預設「未歸類」（`category_id` 為 NULL）、點卡片開 modal 編輯歸類／指派／優先度／日期；人員派工拖曳卡片跨欄呼叫 `assignee` 端點，欄內排序為固定規則（依到期日，無到期日排最後）。同一任務的連續寫入經 `taskWriteQueue` 序列化，避免拖曳與 modal 編輯併發時後完成者用舊快照蓋掉新資料。
+專案詳情頁（`project-detail.js`）為三分頁，各自獨立載入資料、以 `v-if` 切換（非 `v-show`，避免分頁間資料不同步）：看板（`KanbanView`，預設分頁）一次載入任務與分類資料；人員派工（`AssignmentView`）載入任務與成員資料，依成員分欄（含「未指派」欄）呈現，v1 僅支援拖曳改指派，不支援點卡片開 modal（完整編輯回看板做）；WBS 檢視（`WbsView`）依兩層分類呈現大類→子類→任務的樹狀結構＋固定的「未歸類」節點，節點旁顯示任務數與完成度（前端即時算），核心互動是拖曳任務改變所屬大類/子類，點任務列開與看板相同的編輯 modal，分類本身的新增/改名/刪除/排序仍只在看板的「分類管理」面板操作。看板與 WBS 檢視共用 `taskBoardMixin`（載入 tasks/categories/members 三份資料與 `taskWriteQueue` 序列化寫入佇列）、`taskModalMixin`（新增/編輯/刪除任務的邏輯）與 `TaskModal` 元件（modal 畫面本身），三分頁共用 `toastMixin`（提示訊息與計時器），避免重複邏輯。所有修改走 REST，成功後就地更新（樂觀更新＋失敗回滾、fetch 失敗顯示 toast）：看板拖曳卡片跨欄呼叫 `move` 端點、建立任務預設「未歸類」（`category_id` 為 NULL）、點卡片開 modal 編輯歸類／指派／優先度／日期；人員派工拖曳卡片跨欄呼叫 `assignee` 端點，欄內排序為固定規則（依到期日，無到期日排最後）；WBS 檢視拖曳任務改分類重用既有任務 `PUT` 端點（帶入原欄位＋新 `categoryId`），不新增後端端點。同一任務的連續寫入經 `taskWriteQueue` 序列化，避免拖曳與 modal 編輯併發時後完成者用舊快照蓋掉新資料。
 
 看板工具列的「分類管理」面板純前端疊加在既有分類 REST 端點上（無新後端端點）：從 `task_category_presets` 選單挑選建立階段／子類別、雙擊原地改名、同層拖曳重新排序、刪除（階段連坐刪其下子類別，後端 `ON DELETE SET NULL` 讓任務落回未歸類）。刪除分類後前端須同步清空本地 `tasks` 快照中對應的 `categoryId`，否則任務 modal 的「所屬類別」下拉會因對不到選項而顯示空白，要等重新整理頁面才會變回「未歸類」。
 
