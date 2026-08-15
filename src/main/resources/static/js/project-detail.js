@@ -155,7 +155,8 @@
   };
 
   // KanbanView 與 WbsView 共用：載入 tasks/categories/members 三份資料、loading 狀態，
-  // 以及同一任務連續寫入時的序列化佇列（避免拖曳與 modal 編輯併發時後完成者用舊快照蓋掉新資料）
+  // 以及同一任務連續寫入時的序列化佇列（避免同一任務快速連續寫入時後完成者用舊快照蓋掉新資料，
+  // 例如連續兩次拖曳；注意 modal 的 saveTask() 目前未走此佇列，不涵蓋拖曳與 modal 編輯併發的情境）
   const taskBoardMixin = {
     data() {
       return { tasks: [], categories: [], members: [], loading: true, taskWriteQueue: {} };
@@ -732,7 +733,7 @@
         await this.moveTaskToCategory(task, categoryId);
       },
       // 拖曳只改 categoryId，其餘欄位原樣送出（跟 taskModalMixin 的 saveTask() 組 payload 方式相同），
-      // 不新增後端端點；走 taskWriteQueue 序列化，避免跟 modal 編輯併發時互相蓋資料
+      // 不新增後端端點；走 taskWriteQueue 序列化同一任務的連續寫入，避免快速連續拖曳時後完成者用舊快照蓋掉新資料
       async moveTaskToCategory(task, categoryId) {
         const prev = task.categoryId;
         task.categoryId = categoryId;
@@ -746,7 +747,9 @@
             }),
           });
           if (!result.success) {
-            task.categoryId = prev;
+            // 只在 categoryId 仍是這次呼叫剛設定的值時才回滾；若後續另一次呼叫已成功把它改成別的值，
+            // 代表本地已是最新狀態，不可用這次失敗的舊值覆蓋掉
+            if (task.categoryId === categoryId) task.categoryId = prev;
             this.showToast(result.message || '移動失敗');
           }
         });
@@ -770,7 +773,8 @@
             <div v-if="isExpanded('unassigned')" class="wbs-task-list">
               <div v-for="t in directTasks(null)" :key="t.id" class="wbs-task-row"
                    :class="['priority-' + (t.priority || 'NONE')]"
-                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)" @click="openEdit(t)">
+                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)"
+                   @dragend="draggingTask = null; dragOverCategoryId = undefined" @click="openEdit(t)">
                 <span class="wbs-task-title">{{ t.title }}</span>
                 <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
                 <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
@@ -790,7 +794,8 @@
             <div v-if="isExpanded(stage.id)" class="wbs-node-body">
               <div v-for="t in directTasks(stage.id)" :key="t.id" class="wbs-task-row"
                    :class="['priority-' + (t.priority || 'NONE')]"
-                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)" @click="openEdit(t)">
+                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)"
+                   @dragend="draggingTask = null; dragOverCategoryId = undefined" @click="openEdit(t)">
                 <span class="wbs-task-title">{{ t.title }}</span>
                 <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
                 <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
@@ -807,7 +812,8 @@
                 <div v-if="isExpanded(child.id)" class="wbs-task-list">
                   <div v-for="t in directTasks(child.id)" :key="t.id" class="wbs-task-row"
                        :class="['priority-' + (t.priority || 'NONE')]"
-                       :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)" @click="openEdit(t)">
+                       :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)"
+                       @dragend="draggingTask = null; dragOverCategoryId = undefined" @click="openEdit(t)">
                     <span class="wbs-task-title">{{ t.title }}</span>
                     <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
                     <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
