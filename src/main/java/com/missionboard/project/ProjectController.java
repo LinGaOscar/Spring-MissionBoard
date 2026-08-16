@@ -31,9 +31,13 @@ public class ProjectController {
         if (!projectService.canRead(id, user)) {
             return "redirect:/projects";
         }
+        Project project = projectService.getById(id);
         model.addAttribute("projectId", id);
         model.addAttribute("canWrite", projectService.canWrite(id, user));
-        model.addAttribute("sectionId", projectService.getById(id).getSection().getId());
+        model.addAttribute("canArchive", projectService.canArchive(id, user));
+        model.addAttribute("archived", project.isArchived());
+        model.addAttribute("ownerId", project.getOwner().getId());
+        model.addAttribute("sectionId", project.getSection().getId());
         return "project/detail";
     }
 

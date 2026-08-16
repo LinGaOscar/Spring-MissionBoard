@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -104,6 +105,17 @@ class ProjectDetailPageTest {
         mockMvc.perform(get("/projects/" + project.getId()).cookie(session))
             .andExpect(status().is3xxRedirection())
             .andExpect(redirectedUrl("/projects"));
+    }
+
+    @Test
+    void detailPageExposesArchiveRelatedModelAttributes() throws Exception {
+        Cookie session = loginAs("leaderX");
+
+        mockMvc.perform(get("/projects/" + project.getId()).cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(model().attribute("canArchive", true))
+            .andExpect(model().attribute("archived", false))
+            .andExpect(model().attribute("ownerId", project.getOwner().getId()));
     }
 
     @Test
