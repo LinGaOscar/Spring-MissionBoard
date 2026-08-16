@@ -4,48 +4,19 @@
   <meta charset="UTF-8">
   <title>專案列表 - MissionBoard 任務管理系統</title>
   <link rel="stylesheet" th:href="@{/css/app.css}">
+  <script th:src="@{/js/vue.global.prod.min.js}"></script>
 </head>
 <body>
 <div th:replace="~{fragments/header :: header}"></div>
 <div class="layout">
   <div th:replace="~{fragments/sidebar :: sidebar}"></div>
   <main class="main-content">
-    <div class="page-header">
-      <h1>專案列表</h1>
+    <div id="list-app">
+      <p>載入中...</p>
     </div>
-    <div id="project-grid" class="project-grid"></div>
   </main>
 </div>
 <div th:replace="~{fragments/footer :: footer}"></div>
-<script>
-  // 純伺服器渲染頁的最小互動：抓取後用 DOM API 逐一組卡片，避免 innerHTML 拼接使用者輸入內容導致 XSS
-  fetch('/api/projects')
-    .then(function (res) { return res.json(); })
-    .then(function (body) {
-      var grid = document.getElementById('project-grid');
-      if (!body.success || body.data.length === 0) {
-        grid.textContent = '目前沒有專案';
-        return;
-      }
-      body.data.forEach(function (project) {
-        // 卡片本身就是連結，維持與檔案其他部分一致的 DOM API 組裝方式（不用 innerHTML，避免專案名稱夾帶 XSS）
-        var card = document.createElement('a');
-        card.className = 'project-card';
-        card.href = '/projects/' + project.id;
-
-        var name = document.createElement('div');
-        name.className = 'project-card-name';
-        name.textContent = project.name;
-
-        var meta = document.createElement('div');
-        meta.className = 'project-card-meta';
-        meta.textContent = project.sectionName + ' · 負責人：' + project.ownerDisplayName;
-
-        card.appendChild(name);
-        card.appendChild(meta);
-        grid.appendChild(card);
-      });
-    });
-</script>
+<script th:src="@{/js/project-list.js}"></script>
 </body>
 </html>
