@@ -6,8 +6,12 @@ import com.missionboard.user.User;
 import com.missionboard.user.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.util.List;
 
@@ -16,6 +20,8 @@ import java.util.List;
 public class TaskController {
 
     private final TaskService taskService;
+    private final TaskCategoryService taskCategoryService;
+    private final TaskExportService taskExportService;
     private final ProjectService projectService;
     private final UserRepository userRepository;
 
@@ -68,6 +74,26 @@ public class TaskController {
         checkWrite(projectId, principal);
         taskService.moveTask(projectId, taskId, req.status(), req.sortOrder());
         return ApiResponse.ok(null);
+    }
+
+    // 匯出是唯讀操作：凡可檢視此專案者（含封存、跨科唯讀角色）皆可使用，權限比照 list() 用 canRead
+    @GetMapping("/api/projects/{projectId}/export.xlsx")
+    public ResponseEntity<byte[]> export(@PathVariable Long projectId, Principal principal) {
+        checkRead(projectId, principal);
+        byte[] content = taskExportService.toXlsx(
+            taskService.list(projectId), taskCategoryService.list(projectId));
+        String filename = projectService.getById(projectId).getName() + "_任務清單.xlsx";
+        return download(content, filename,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    // 檔名含中文，用 RFC 5987 filename* 編碼，避免部分瀏覽器/下載工具把中文檔名截斷或亂碼
+    private ResponseEntity<byte[]> download(byte[] body, String filename, String contentType) {
+        String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+            .header("Content-Disposition", "attachment; filename*=UTF-8''" + encoded)
+            .contentType(MediaType.parseMediaType(contentType))
+            .body(body);
     }
 
     private TaskDto.Response toResponse(Task task) {

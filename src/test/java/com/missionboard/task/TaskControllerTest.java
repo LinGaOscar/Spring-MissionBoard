@@ -140,4 +140,31 @@ class TaskControllerTest {
                 .content("{\"assigneeId\":" + outsider.getId() + "}"))
             .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void exportXlsxSucceedsForArchivedProject() throws Exception {
+        Cookie session = loginAs("leaderA");
+        mockMvc.perform(post("/api/projects/{id}/tasks", project.getId()).cookie(session).with(csrf())
+                .contentType("application/json")
+                .content("{\"categoryId\":null,\"title\":\"任務\"}"))
+            .andExpect(status().isOk());
+
+        project.setArchived(true);
+        projectRepository.save(project);
+
+        mockMvc.perform(get("/api/projects/{id}/export.xlsx", project.getId()).cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(result -> assertThat(result.getResponse().getHeader("Content-Disposition"))
+                .contains("filename*=UTF-8''"));
+    }
+
+    @Test
+    void exportXlsxDeniedForOutsideSectionUser() throws Exception {
+        Cookie session = loginAs("chiefB");
+
+        mockMvc.perform(get("/api/projects/{id}/export.xlsx", project.getId()).cookie(session))
+            .andExpect(status().isForbidden());
+    }
 }
