@@ -4,6 +4,8 @@
   const el = document.getElementById('detail-app');
   const projectId = Number(el.dataset.projectId);
   const canWrite = el.dataset.canWrite === 'true';
+  const canArchive = el.dataset.canArchive === 'true';
+  const archived = el.dataset.archived === 'true';
   const sectionId = el.dataset.sectionId ? Number(el.dataset.sectionId) : null;
 
   async function api(url, options = {}) {
@@ -837,11 +839,39 @@
   });
 
   const app = createApp({
+    mixins: [toastMixin],
     data() {
-      return { projectId, canWrite, sectionId, activeTab: 'kanban' };
+      return { projectId, canWrite, canArchive, archived, sectionId, activeTab: 'kanban' };
+    },
+    methods: {
+      async archiveProject() {
+        const result = await api(`/api/projects/${this.projectId}/archive`, { method: 'PATCH' });
+        if (result.success) {
+          this.archived = true;
+          // 封存後任何角色的 canWrite 恆為 false（ProjectService.canWrite 的鏡射邏輯），不需要重新查詢後端
+          this.canWrite = false;
+        } else {
+          this.showToast(result.message || '封存失敗');
+        }
+      },
+      async unarchiveProject() {
+        const result = await api(`/api/projects/${this.projectId}/unarchive`, { method: 'PATCH' });
+        if (result.success) {
+          this.archived = false;
+          // 未封存時 canWrite 與 canArchive 的角色判斷邏輯完全相同（見 ProjectService.canWrite/canArchive），可直接沿用
+          this.canWrite = this.canArchive;
+        } else {
+          this.showToast(result.message || '解封存失敗');
+        }
+      },
     },
     template: `
       <div>
+        <div class="project-toolbar">
+          <span v-if="archived" class="archived-badge">已封存</span>
+          <button v-if="canArchive && !archived" class="btn" @click="archiveProject">封存</button>
+          <button v-if="canArchive && archived" class="btn" @click="unarchiveProject">解封存</button>
+        </div>
         <div class="detail-tabs">
           <button class="btn" :class="{ 'btn-primary': activeTab === 'kanban' }" @click="activeTab = 'kanban'">看板</button>
           <button class="btn" :class="{ 'btn-primary': activeTab === 'assignment' }" @click="activeTab = 'assignment'">人員派工</button>
@@ -850,6 +880,7 @@
         <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" />
         <assignment-view v-else-if="activeTab === 'assignment'" :project-id="projectId" :can-write="canWrite" />
         <wbs-view v-else :project-id="projectId" :can-write="canWrite" />
+        <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
       </div>
     `,
   });

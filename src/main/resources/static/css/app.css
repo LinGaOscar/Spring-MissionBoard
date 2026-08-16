@@ -107,3 +107,5 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .wbs-task-status { color: #636e72; }
 .wbs-task-assignee { color: #636e72; }
 .wbs-task-due.overdue { color: #d63031; font-weight: 700; }
+.project-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+.archived-badge { background: #ffe0e0; color: #c0392b; padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
