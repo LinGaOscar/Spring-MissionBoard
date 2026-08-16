@@ -798,12 +798,20 @@
           }
         });
       },
+      exportXlsx() {
+        // 純 GET 下載，Spring Security 預設不對 GET 做 CSRF 檢查，直接導航即可觸發瀏覽器下載，
+        // 不需要走 api() 骨架（那是給會回傳 JSON 的端點用的）
+        window.location.href = `/api/projects/${this.projectId}/export.xlsx`;
+      },
     },
     mounted() {
       this.loadAll();
     },
     template: `
       <div>
+        <div class="wbs-toolbar">
+          <button class="btn" @click="exportXlsx">匯出 Excel</button>
+        </div>
         <p v-if="loading">載入中...</p>
         <div v-else class="wbs-tree">
           <div class="wbs-node"
