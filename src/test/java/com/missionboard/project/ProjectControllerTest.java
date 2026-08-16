@@ -259,4 +259,16 @@ class ProjectControllerTest {
                 .content("{\"userId\":" + memberX.getId() + "}"))
             .andExpect(status().isForbidden());
     }
+
+    @Test
+    void removeMemberDeniedWhenTargetIsCurrentOwner() throws Exception {
+        Cookie session = loginAs("chiefA");
+
+        mockMvc.perform(delete("/api/projects/" + projectA.getId() + "/members/" + leaderA.getId())
+                .cookie(session).with(csrf()))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false));
+
+        assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(projectA.getId(), leaderA.getId())).isTrue();
+    }
 }

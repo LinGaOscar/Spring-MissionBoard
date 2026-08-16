@@ -263,4 +263,13 @@ class ProjectServiceTest {
             .isInstanceOf(EntityNotFoundException.class)
             .hasMessageContaining("該使用者不是此專案成員");
     }
+
+    @Test
+    void removeMemberThrowsWhenRemovingCurrentOwner() {
+        assertThatThrownBy(() -> projectService.removeMember(projectA.getId(), leaderA.getId()))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("請先轉移負責人");
+
+        assertThat(projectMemberRepository.existsByIdProjectIdAndIdUserId(projectA.getId(), leaderA.getId())).isTrue();
+    }
 }

@@ -134,6 +134,12 @@ public class ProjectService {
         if (!projectMemberRepository.existsByIdProjectIdAndIdUserId(projectId, userId)) {
             throw new EntityNotFoundException("該使用者不是此專案成員");
         }
+        // 現任負責人不可被移除，否則 project.owner 會指向非成員的髒資料；
+        // 前端「成員管理」面板已停用 owner 列的移除按鈕，這裡是繞過前端直接呼叫 API 的最終防線
+        Project project = getById(projectId);
+        if (project.getOwner().getId().equals(userId)) {
+            throw new IllegalArgumentException("無法移除專案負責人，請先轉移負責人");
+        }
         projectMemberRepository.deleteById(new ProjectMemberId(projectId, userId));
         // 顯式 flush：deleteById 找到的實體常已存在於一級快取（先前查詢留下），
         // 刪除動作會延後到 flush 才真正送出 DELETE；同交易內若緊接著查詢
