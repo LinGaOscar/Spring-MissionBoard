@@ -672,6 +672,35 @@
     `,
   });
 
+  // WbsView 專用：一列任務的顯示（標題/狀態/指派人/到期日），在未歸類、階段直屬、子類三處清單重複出現，
+  // 抽成元件避免同一段 markup 維護三份
+  const WbsTaskRow = defineComponent({
+    name: 'WbsTaskRow',
+    props: {
+      task: { type: Object, required: true },
+      canWrite: { type: Boolean, default: false },
+    },
+    emits: ['dragstart', 'dragend', 'open'],
+    methods: {
+      isOverdue(t) {
+        return isOverdueDate(t);
+      },
+      statusLabel(status) {
+        return STATUS_LABELS[status];
+      },
+    },
+    template: `
+      <div class="wbs-task-row" :class="['priority-' + (task.priority || 'NONE')]"
+           :draggable="canWrite" @dragstart="$emit('dragstart', $event)"
+           @dragend="$emit('dragend')" @click="$emit('open')">
+        <span class="wbs-task-title">{{ task.title }}</span>
+        <span class="wbs-task-status">{{ statusLabel(task.status) }}</span>
+        <span class="wbs-task-assignee">{{ task.assigneeDisplayName || '--' }}</span>
+        <span class="wbs-task-due" :class="{ overdue: isOverdue(task) }">{{ task.dueDate || '--' }}</span>
+      </div>
+    `,
+  });
+
   const WbsView = defineComponent({
     name: 'WbsView',
     mixins: [toastMixin, taskBoardMixin, taskModalMixin],
@@ -692,12 +721,6 @@
       },
     },
     methods: {
-      isOverdue(t) {
-        return isOverdueDate(t);
-      },
-      statusLabel(status) {
-        return STATUS_LABELS[status];
-      },
       isExpanded(key) {
         return this.expandedState[key] !== false;
       },
@@ -771,15 +794,9 @@
               <span class="wbs-node-summary">{{ completionLabel([null]) }}</span>
             </div>
             <div v-if="isExpanded('unassigned')" class="wbs-task-list">
-              <div v-for="t in directTasks(null)" :key="t.id" class="wbs-task-row"
-                   :class="['priority-' + (t.priority || 'NONE')]"
-                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)"
-                   @dragend="draggingTask = null; dragOverCategoryId = undefined" @click="openEdit(t)">
-                <span class="wbs-task-title">{{ t.title }}</span>
-                <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
-                <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
-                <span class="wbs-task-due" :class="{ overdue: isOverdue(t) }">{{ t.dueDate || '--' }}</span>
-              </div>
+              <wbs-task-row v-for="t in directTasks(null)" :key="t.id" :task="t" :can-write="canWrite"
+                            @dragstart="onTaskDragStart(t, $event)"
+                            @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)" />
             </div>
           </div>
 
@@ -792,15 +809,9 @@
               <span class="wbs-node-summary">{{ completionLabel(stageIds(stage)) }}</span>
             </div>
             <div v-if="isExpanded(stage.id)" class="wbs-node-body">
-              <div v-for="t in directTasks(stage.id)" :key="t.id" class="wbs-task-row"
-                   :class="['priority-' + (t.priority || 'NONE')]"
-                   :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)"
-                   @dragend="draggingTask = null; dragOverCategoryId = undefined" @click="openEdit(t)">
-                <span class="wbs-task-title">{{ t.title }}</span>
-                <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
-                <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
-                <span class="wbs-task-due" :class="{ overdue: isOverdue(t) }">{{ t.dueDate || '--' }}</span>
-              </div>
+              <wbs-task-row v-for="t in directTasks(stage.id)" :key="t.id" :task="t" :can-write="canWrite"
+                            @dragstart="onTaskDragStart(t, $event)"
+                            @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)" />
               <div v-for="child in stage.children" :key="child.id" class="wbs-node wbs-node-child"
                    :class="{ 'drag-over': draggingTask && dragOverCategoryId === child.id }"
                    @dragover.prevent.stop="dragOverCategoryId = child.id" @drop.stop="onCategoryNodeDrop(child.id)">
@@ -810,15 +821,9 @@
                   <span class="wbs-node-summary">{{ completionLabel([child.id]) }}</span>
                 </div>
                 <div v-if="isExpanded(child.id)" class="wbs-task-list">
-                  <div v-for="t in directTasks(child.id)" :key="t.id" class="wbs-task-row"
-                       :class="['priority-' + (t.priority || 'NONE')]"
-                       :draggable="canWrite" @dragstart="onTaskDragStart(t, $event)"
-                       @dragend="draggingTask = null; dragOverCategoryId = undefined" @click="openEdit(t)">
-                    <span class="wbs-task-title">{{ t.title }}</span>
-                    <span class="wbs-task-status">{{ statusLabel(t.status) }}</span>
-                    <span class="wbs-task-assignee">{{ t.assigneeDisplayName || '--' }}</span>
-                    <span class="wbs-task-due" :class="{ overdue: isOverdue(t) }">{{ t.dueDate || '--' }}</span>
-                  </div>
+                  <wbs-task-row v-for="t in directTasks(child.id)" :key="t.id" :task="t" :can-write="canWrite"
+                                @dragstart="onTaskDragStart(t, $event)"
+                                @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)" />
                 </div>
               </div>
             </div>
@@ -852,6 +857,7 @@
   app.component('kanban-view', KanbanView);
   app.component('assignment-view', AssignmentView);
   app.component('task-modal', TaskModal);
+  app.component('wbs-task-row', WbsTaskRow);
   app.component('wbs-view', WbsView);
   app.mount('#detail-app');
 })();
