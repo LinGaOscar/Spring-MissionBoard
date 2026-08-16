@@ -76,7 +76,7 @@ mvn test -Dtest=ClassName#methodName
 
 專案列表頁（`project-list.js`）與看板/WBS 一樣改掛 Vue 3（原本是純 vanilla JS 手刻 DOM），新增未封存/已封存頁籤與「建立專案」Modal（`POST /api/projects`，`section`/`owner` 由後端自動代入建立者部門與本人，前端只送 `name`/`description`）。專案詳情頁根元件新增專案層級工具列：封存/解封存按鈕依 `canArchive` 顯示（**不是** `canWrite`——封存後 `canWrite` 對所有角色恆為 `false`，唯一能判斷「可否解封存」的旗標是 `canArchive`）；「成員管理」面板可新增/移除成員、換負責人，新增成員下拉列出全部使用者不限科別，移除現任負責人前端停用按鈕、後端 `ProjectService.removeMember` 也擋一次（400）。成員管理面板獨立於三個分頁之外，異動後透過根元件的 `dataVersion` 計數器（作為 prop 傳給當前掛載中的分頁並 `watch`）觸發該分頁重新 `loadAll()`，避免指派人顯示殘留舊資料又不用整頁重新整理。
 
-WBS 檢視分頁工具列新增「匯出 Excel」按鈕，直接以 `window.location.href` 導向 `GET /api/projects/{id}/export.xlsx` 觸發瀏覽器下載（純 GET 不受 CSRF 保護，不需走 `api()` 骨架）；後端 `TaskExportService` 用 Apache POI 產生欄位固定為「大類／子類／任務標題／指派人／狀態／優先度／起始日／到期日」的工作表，列的排序對齊 WBS 樹狀顯示順序（未歸類 → 各大類 → 各大類底下的子類），權限比照 `canRead`（唯讀角色與封存專案皆可匯出）。
+WBS 檢視分頁工具列新增「匯出 Excel」按鈕，以 `fetch` + blob 下載 `GET /api/projects/{id}/export.xlsx`（非 `window.location.href` 直接導航——401/403 時後端沒有 `Content-Disposition`，整頁會被導去顯示 `ApiResponse` 的原始 JSON 錯誤內容，摧毀當下分頁狀態；也不能沿用 `api()` 骨架，它固定呼叫 `res.json()` 對二進位內容會解析失敗）：非 200 時解析 JSON 錯誤訊息跳 toast、不觸發下載，200 時才從 `Content-Disposition` 的 `filename*=UTF-8''...` 取回實際檔名建立 blob 連結觸發下載。後端 `TaskExportService` 用 Apache POI 產生欄位固定為「大類／子類／任務標題／指派人／狀態／優先度／起始日／到期日」的工作表，列的排序對齊 WBS 樹狀顯示順序（未歸類 → 各大類 → 各大類底下的子類），權限比照 `canRead`（唯讀角色與封存專案皆可匯出）。
 
 ## 測試重點
 

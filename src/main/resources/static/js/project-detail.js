@@ -798,10 +798,32 @@
           }
         });
       },
-      exportXlsx() {
-        // 純 GET 下載，Spring Security 預設不對 GET 做 CSRF 檢查，直接導航即可觸發瀏覽器下載，
-        // 不需要走 api() 骨架（那是給會回傳 JSON 的端點用的）
-        window.location.href = `/api/projects/${this.projectId}/export.xlsx`;
+      // 不能沿用 window.location.href：401/403 時後端沒有 Content-Disposition，瀏覽器會直接把
+      // 整頁導航到 ApiResponse 的原始 JSON 錯誤內容，使用者當下的分頁狀態全部消失。改用 fetch+blob，
+      // 非 200 時才有機會攔下來跳 toast；也不能沿用 api() 骨架，它固定呼叫 res.json()，對二進位 xlsx
+      // 內容會解析失敗
+      async exportXlsx() {
+        try {
+          const res = await fetch(`/api/projects/${this.projectId}/export.xlsx`);
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            this.showToast(body.message || '匯出失敗');
+            return;
+          }
+          // 檔名從後端 Content-Disposition 的 RFC 5987 filename*=UTF-8''... 取回，
+          // 保留 TaskController.download() 產生的「{專案名稱}_任務清單.xlsx」，不要 hardcode 通用檔名
+          const disposition = res.headers.get('Content-Disposition') || '';
+          const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+          const filename = match ? decodeURIComponent(match[1]) : '任務清單.xlsx';
+          const url = URL.createObjectURL(await res.blob());
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          this.showToast('網路錯誤，請稍後再試');
+        }
       },
     },
     mounted() {
@@ -898,27 +920,34 @@
           this.archived = false;
           // 未封存時 canWrite 與 canArchive 的角色判斷邏輯完全相同（見 ProjectService.canWrite/canArchive），可直接沿用
           this.canWrite = this.canArchive;
+          // canWrite 由 false 轉 true：若成員面板先前已在唯讀狀態下載入過（跳過了 /api/users），
+          // 復位 membersLoaded 讓下次開面板補抓使用者名單，否則新增成員下拉會維持空白直到整頁重新整理
+          this.membersLoaded = false;
         } else {
           this.showToast(result.message || '解封存失敗');
         }
       },
       async toggleMemberPanel() {
         this.memberPanelOpen = !this.memberPanelOpen;
+        // 先設 true 擋住連續點擊的重複載入；loadMembers 失敗會自行復位，讓下次開面板重新嘗試
         if (this.memberPanelOpen && !this.membersLoaded) {
           this.membersLoaded = true;
           await this.loadMembers();
         }
       },
+      // /api/users（全體使用者名單）只有 canWrite 的新增成員下拉會用到，唯讀角色（如 DIRECTOR）
+      // 開面板時略過這支請求，不必為了用不到的資料多打一次 API
       async loadMembers() {
         this.membersLoading = true;
-        const [membersRes, usersRes] = await Promise.all([
-          api(`/api/projects/${this.projectId}/members`),
-          api('/api/users'),
-        ]);
+        const requests = [api(`/api/projects/${this.projectId}/members`)];
+        if (this.canWrite) requests.push(api('/api/users'));
+        const [membersRes, usersRes] = await Promise.all(requests);
         this.members = membersRes.success ? membersRes.data : [];
-        this.allUsers = usersRes.success ? usersRes.data : [];
-        if (!membersRes.success || !usersRes.success) {
-          this.showToast(membersRes.message || usersRes.message || '成員載入失敗');
+        this.allUsers = (usersRes && usersRes.success) ? usersRes.data : [];
+        if (!membersRes.success || (usersRes && !usersRes.success)) {
+          this.showToast(membersRes.message || (usersRes && usersRes.message) || '成員載入失敗');
+          // 失敗時復位 membersLoaded，避免網路小抖動後面板永遠卡在空清單，要重新整理頁面才能救回來
+          this.membersLoaded = false;
         }
         this.membersLoading = false;
       },

@@ -52,6 +52,7 @@ class ProjectDetailPageTest {
 
         User leader = saveUser("leaderX", User.Role.PROJECT_LEADER, sectionA);
         saveUser("memberY", User.Role.PROJECT_MEMBER, sectionB);
+        saveUser("directorZ", User.Role.DIRECTOR, sectionB);
 
         Project p = new Project();
         p.setName("樹編輯器測試專案");
@@ -116,6 +117,17 @@ class ProjectDetailPageTest {
             .andExpect(model().attribute("canArchive", true))
             .andExpect(model().attribute("archived", false))
             .andExpect(model().attribute("ownerId", project.getOwner().getId()));
+    }
+
+    // DIRECTOR 對任何專案（含跨科）canRead 恆為 true、canArchive 恆為 false（ProjectService.canArchive 的角色 switch）；
+    // 這條 pin 住前端 unarchiveProject() 依賴的 canWrite ≡ canArchive 恆等式，避免未來調整角色邏輯時兩者悄悄脫鉤
+    @Test
+    void detailPageExposesCanArchiveFalseForDirector() throws Exception {
+        Cookie session = loginAs("directorZ");
+
+        mockMvc.perform(get("/projects/" + project.getId()).cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(model().attribute("canArchive", false));
     }
 
     @Test
