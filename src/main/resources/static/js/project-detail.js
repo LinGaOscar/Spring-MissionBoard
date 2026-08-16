@@ -6,6 +6,7 @@
   const canWrite = el.dataset.canWrite === 'true';
   const canArchive = el.dataset.canArchive === 'true';
   const archived = el.dataset.archived === 'true';
+  const ownerId = el.dataset.ownerId ? Number(el.dataset.ownerId) : null;
   const sectionId = el.dataset.sectionId ? Number(el.dataset.sectionId) : null;
 
   async function api(url, options = {}) {
@@ -254,6 +255,12 @@
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
       sectionId: { type: Number, default: null },
+      dataVersion: { type: Number, default: 0 },
+    },
+    watch: {
+      dataVersion() {
+        this.loadAll();
+      },
     },
     data() {
       return {
@@ -565,6 +572,12 @@
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
+      dataVersion: { type: Number, default: 0 },
+    },
+    watch: {
+      dataVersion() {
+        this.loadAll();
+      },
     },
     data() {
       return {
@@ -709,6 +722,12 @@
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
+      dataVersion: { type: Number, default: 0 },
+    },
+    watch: {
+      dataVersion() {
+        this.loadAll();
+      },
     },
     data() {
       return {
@@ -841,7 +860,18 @@
   const app = createApp({
     mixins: [toastMixin],
     data() {
-      return { projectId, canWrite, canArchive, archived, sectionId, activeTab: 'kanban' };
+      return {
+        projectId, canWrite, canArchive, archived, sectionId, activeTab: 'kanban',
+        ownerId, dataVersion: 0,
+        memberPanelOpen: false, membersLoaded: false, membersLoading: false,
+        members: [], allUsers: [], addingUserId: null, changingOwnerId: null,
+      };
+    },
+    computed: {
+      availableUsers() {
+        const memberIds = new Set(this.members.map(m => m.userId));
+        return this.allUsers.filter(u => !memberIds.has(u.id));
+      },
     },
     methods: {
       async archiveProject() {
@@ -864,6 +894,63 @@
           this.showToast(result.message || '解封存失敗');
         }
       },
+      async toggleMemberPanel() {
+        this.memberPanelOpen = !this.memberPanelOpen;
+        if (this.memberPanelOpen && !this.membersLoaded) {
+          this.membersLoaded = true;
+          await this.loadMembers();
+        }
+      },
+      async loadMembers() {
+        this.membersLoading = true;
+        const [membersRes, usersRes] = await Promise.all([
+          api(`/api/projects/${this.projectId}/members`),
+          api('/api/users'),
+        ]);
+        this.members = membersRes.success ? membersRes.data : [];
+        this.allUsers = usersRes.success ? usersRes.data : [];
+        if (!membersRes.success || !usersRes.success) {
+          this.showToast(membersRes.message || usersRes.message || '成員載入失敗');
+        }
+        this.membersLoading = false;
+      },
+      async addMember() {
+        if (!this.addingUserId) return;
+        const result = await api(`/api/projects/${this.projectId}/members`, {
+          method: 'POST', body: JSON.stringify({ userId: this.addingUserId }),
+        });
+        this.addingUserId = null;
+        if (result.success) {
+          await this.loadMembers();
+          this.dataVersion++;
+        } else {
+          this.showToast(result.message || '新增成員失敗');
+        }
+      },
+      async removeMember(m) {
+        if (m.userId === this.ownerId) return;
+        if (!confirm(`確定移除成員「${m.displayName}」？`)) return;
+        const result = await api(`/api/projects/${this.projectId}/members/${m.userId}`, { method: 'DELETE' });
+        if (result.success) {
+          await this.loadMembers();
+          this.dataVersion++;
+        } else {
+          this.showToast(result.message || '移除成員失敗');
+        }
+      },
+      async changeOwner() {
+        if (!this.changingOwnerId || this.changingOwnerId === this.ownerId) return;
+        const result = await api(`/api/projects/${this.projectId}/owner`, {
+          method: 'PUT', body: JSON.stringify({ userId: this.changingOwnerId }),
+        });
+        if (result.success) {
+          this.ownerId = this.changingOwnerId;
+          this.changingOwnerId = null;
+          this.dataVersion++;
+        } else {
+          this.showToast(result.message || '換負責人失敗');
+        }
+      },
     },
     template: `
       <div>
@@ -871,15 +958,47 @@
           <span v-if="archived" class="archived-badge">已封存</span>
           <button v-if="canArchive && !archived" class="btn" @click="archiveProject">封存</button>
           <button v-if="canArchive && archived" class="btn" @click="unarchiveProject">解封存</button>
+          <button class="btn" @click="toggleMemberPanel">成員管理 {{ memberPanelOpen ? '▴' : '▾' }}</button>
+        </div>
+        <div v-if="memberPanelOpen" class="member-panel">
+          <p v-if="membersLoading">載入中...</p>
+          <template v-else>
+            <ul class="member-list">
+              <li v-for="m in members" :key="m.userId" class="member-row">
+                <span>{{ m.displayName }}<span v-if="m.userId === ownerId" class="member-owner-badge">負責人</span></span>
+                <button v-if="canWrite" class="btn btn-sm btn-danger" :disabled="m.userId === ownerId"
+                        :title="m.userId === ownerId ? '請先轉移負責人' : ''"
+                        @click="removeMember(m)">移除</button>
+              </li>
+              <li v-if="!members.length" style="color:#636e72;font-size:0.85rem">尚無成員</li>
+            </ul>
+            <div v-if="canWrite" class="member-panel-actions">
+              <div class="member-add-row">
+                <select v-model="addingUserId">
+                  <option :value="null">— 新增成員 —</option>
+                  <option v-for="u in availableUsers" :key="u.id" :value="u.id">{{ u.displayName }}</option>
+                </select>
+                <button class="btn btn-sm btn-primary" :disabled="!addingUserId" @click="addMember">新增</button>
+              </div>
+              <div class="member-owner-row">
+                <label>換負責人</label>
+                <select v-model="changingOwnerId">
+                  <option :value="null">— 選擇成員 —</option>
+                  <option v-for="m in members" :key="m.userId" :value="m.userId">{{ m.displayName }}</option>
+                </select>
+                <button class="btn btn-sm" :disabled="!changingOwnerId || changingOwnerId === ownerId" @click="changeOwner">確認</button>
+              </div>
+            </div>
+          </template>
         </div>
         <div class="detail-tabs">
           <button class="btn" :class="{ 'btn-primary': activeTab === 'kanban' }" @click="activeTab = 'kanban'">看板</button>
           <button class="btn" :class="{ 'btn-primary': activeTab === 'assignment' }" @click="activeTab = 'assignment'">人員派工</button>
           <button class="btn" :class="{ 'btn-primary': activeTab === 'wbs' }" @click="activeTab = 'wbs'">WBS 檢視</button>
         </div>
-        <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" />
-        <assignment-view v-else-if="activeTab === 'assignment'" :project-id="projectId" :can-write="canWrite" />
-        <wbs-view v-else :project-id="projectId" :can-write="canWrite" />
+        <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" :data-version="dataVersion" />
+        <assignment-view v-else-if="activeTab === 'assignment'" :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />
+        <wbs-view v-else :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />
         <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
       </div>
     `,

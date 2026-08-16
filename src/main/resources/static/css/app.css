@@ -109,3 +109,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .wbs-task-due.overdue { color: #d63031; font-weight: 700; }
 .project-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
 .archived-badge { background: #ffe0e0; color: #c0392b; padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+.member-panel { background: #fff; border: 1px solid #dfe6e9; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.member-list { list-style: none; margin-bottom: 0.75rem; }
+.member-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.25rem; border-bottom: 1px solid #f0f0f0; font-size: 0.9rem; }
+.member-owner-badge { background: #e8f4fd; color: #0984e3; border-radius: 10px; padding: 0.1rem 0.5rem; font-size: 0.75rem; margin-left: 0.5rem; }
+.member-panel-actions { display: flex; flex-direction: column; gap: 0.6rem; padding-top: 0.6rem; border-top: 1px solid #f0f0f0; }
+.member-add-row, .member-owner-row { display: flex; gap: 0.5rem; align-items: center; }
+.member-add-row select, .member-owner-row select { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #b2bec3; border-radius: 4px; font-size: 0.85rem; }
+.member-owner-row label { font-size: 0.85rem; color: #636e72; white-space: nowrap; }
