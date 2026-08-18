@@ -189,7 +189,7 @@ mvn spring-boot:run
 grep -n "#[0-9a-fA-F]\{3,6\}" src/main/resources/static/css/app.css
 ```
 
-預期只剩下 6 行 `priority-HIGH/MEDIUM/LOW`（`.task-card` 與 `.wbs-task-row` 各 3 行）與 2 行 `.alert-error`/`.archived-badge` 的 `#ffe0e0` 背景（Global Constraints 未涵蓋的危險提示底色，刻意不 token 化，保留原有淡紅色視覺）。若出現其他色碼，回頭修正對應規則。
+這個指令也會比對到 `:root` 區塊裡 token 定義本身的 7 個色碼，所以預期共 15 行：7 行 token 定義＋6 行 `priority-HIGH/MEDIUM/LOW`（`.task-card` 與 `.wbs-task-row` 各 3 行）＋2 行 `.alert-error`/`.archived-badge` 的 `#ffe0e0` 背景（Global Constraints 未涵蓋的危險提示底色，刻意不 token 化，保留原有淡紅色視覺）。若非這 15 行的其他色碼出現，回頭修正對應規則。
 
 - [ ] **Step 4: Commit**
 
@@ -881,6 +881,7 @@ import com.missionboard.project.ProjectRepository;
 import com.missionboard.user.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.Comparator;
@@ -894,6 +895,9 @@ public class DashboardService {
     private final ProjectRepository projectRepository;
     private final TaskRepository taskRepository;
 
+    // 唯讀查詢比照 ProjectService/TaskService 既有慣例標 readOnly；ProjectDto.Response.from() 會觸發
+    // section/owner 的 lazy load，沒有交易邊界時只靠 spring.jpa.open-in-view 撐住、不應依賴這個全域設定
+    @Transactional(readOnly = true)
     public DashboardDto.Response getDashboard(User user) {
         return switch (user.getRole()) {
             case PROJECT_LEADER, PROJECT_MEMBER -> buildPersonalView(user);
@@ -1170,7 +1174,7 @@ public class UserController {
 
 - [ ] **Step 10: 更新 `UserControllerTest`——新增 director 帳號、修正既有斷言、新增 dashboard 測試**
 
-`UserControllerTest.java` 現有 `setUp()` 只建立 `leader`／`chief`／`memberB` 三個使用者，`listReturnsAllUsersWithoutFilter` 測試斷言 `$.data.length()` 為 `3`。本步驟新增 `director` 帳號後，該斷言的總數會變成 4，必須一併修正，否則會破壞既有測試。
+`UserControllerTest.java` 現有 `setUp()` 只建立 `leader`／`chief`／`memberB` 三個使用者，`listReturnsAllUsersWithoutFilter` 測試斷言 `$.data.length()` 為 `3`。本步驟新增 `director` 帳號後，該斷言的總數會變成 4，必須一併修正，否則會破壞既有測試。`director` 要建在 `sectionB`（不是 `sectionA`）——`listFiltersByDepartmentId` 測試斷言 `sectionA` 篩選結果恰好是 `leader`／`chief` 兩人（`containsInAnyOrder("leader", "chief")`），把 `director` 放進 `sectionA` 會讓這個既有斷言連帶失敗；放 `sectionB` 則兩個既有測試只需改前者的總數。
 
 把 `setUp()` 方法：
 
@@ -1197,7 +1201,7 @@ void setUp() {
     saveUser("leader", "負責人", User.Role.PROJECT_LEADER, sectionA);
     saveUser("chief", "科長", User.Role.SECTION_CHIEF, sectionA);
     saveUser("memberB", "另科成員", User.Role.PROJECT_MEMBER, sectionB);
-    saveUser("director", "主任", User.Role.DIRECTOR, sectionA);
+    saveUser("director", "主任", User.Role.DIRECTOR, sectionB);
 }
 ```
 
@@ -1504,7 +1508,7 @@ mvn spring-boot:run
 - `director`：確認 `viewType` 為 `ORG`，看到跨科彙總列（依科別分組），滑鼠移到列上確認**不是** `clickable` 樣式（不可點擊，無 hover 效果）
 - `member2`：確認 `viewType` 為 `PERSONAL`，且因為 `member2` 種子資料裡不屬於任何專案、也沒有指派任務，兩個區塊都顯示對應空狀態文字（「目前沒有進行中的專案」／「目前沒有指派給你的任務」）
 
-每個角色截圖一張存證（4 張，符合每輪 ≤3 張的規則需分兩輪或直接在本任務內因為是最終驗證，允許超出——若受限，優先截 `leader`／`director`／`member2` 三張，`chief` 的畫面與 `leader` 版面結構相似度低、優先權可視情況調整,但至少涵蓋三種 viewType）。檢查每個畫面的瀏覽器 console 均無錯誤。
+截圖涵蓋三種 `viewType`（`leader`／`chief`／`director` 各一張，共 3 張，符合每輪 ≤3 張的規則）；`member2` 的空狀態文字用文字回報描述即可,不必額外截圖。檢查每個畫面的瀏覽器 console 均無錯誤。
 
 - [ ] **Step 5: Commit**
 
