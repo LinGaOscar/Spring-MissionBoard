@@ -135,7 +135,7 @@ body { font-family: var(--font-ui); background: var(--paper); color: var(--ink);
 .sidebar-project-name { font-size: 0.85rem; font-weight: 600; color: var(--ink-muted); padding: 0 1.5rem 0.5rem; }
 .sidebar-project-nav ul { list-style: none; }
 .sidebar-project-nav li { padding: 0.5rem 1.5rem 0.5rem 2.25rem; font-size: 0.9rem; cursor: pointer; color: var(--ink); }
-.sidebar-project-nav li:hover { background: var(--surface); }
+.sidebar-project-nav li:hover { background: var(--paper); }
 .sidebar-project-nav li.active { color: var(--signal); font-weight: 600; border-left: 3px solid var(--signal); padding-left: calc(2.25rem - 3px); background: var(--surface); }
 .dashboard-section { margin-bottom: 2rem; }
 .dashboard-section h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--ink); }

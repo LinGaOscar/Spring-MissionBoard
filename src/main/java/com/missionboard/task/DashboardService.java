@@ -72,6 +72,9 @@ public class DashboardService {
                     entry.getKey().getId(), entry.getKey().getName(),
                     entry.getValue().size(), agg.overdueCount(), agg.completionLabel());
             })
+            // Department 沒有覆寫 equals/hashCode，lazy proxy 每次請求都是新實例，
+            // groupingBy 的 HashMap 迭代順序因此不穩定；固定依 sectionId 排序避免主任重整頁面時科別清單跳動
+            .sorted(Comparator.comparing(DashboardDto.SectionSummary::sectionId))
             .toList();
         return DashboardDto.Response.org(summaries);
     }
