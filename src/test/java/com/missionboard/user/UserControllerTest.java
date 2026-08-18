@@ -50,6 +50,7 @@ class UserControllerTest {
         saveUser("leader", "負責人", User.Role.PROJECT_LEADER, sectionA);
         saveUser("chief", "科長", User.Role.SECTION_CHIEF, sectionA);
         saveUser("memberB", "另科成員", User.Role.PROJECT_MEMBER, sectionB);
+        saveUser("director", "主任", User.Role.DIRECTOR, sectionB);
     }
 
     private Department newDept(String name) {
@@ -100,7 +101,7 @@ class UserControllerTest {
 
         mockMvc.perform(get("/api/users").cookie(session))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.length()").value(3));
+            .andExpect(jsonPath("$.data.length()").value(4));
     }
 
     @Test
@@ -111,5 +112,40 @@ class UserControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.length()").value(2))
             .andExpect(jsonPath("$.data[*].username", containsInAnyOrder("leader", "chief")));
+    }
+
+    @Test
+    void dashboardRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/users/me/dashboard"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void dashboardReturnsPersonalViewTypeForProjectLeader() throws Exception {
+        Cookie session = loginAs("leader");
+
+        mockMvc.perform(get("/api/users/me/dashboard").cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.viewType").value("PERSONAL"));
+    }
+
+    @Test
+    void dashboardReturnsSectionViewTypeForSectionChief() throws Exception {
+        Cookie session = loginAs("chief");
+
+        mockMvc.perform(get("/api/users/me/dashboard").cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.viewType").value("SECTION"));
+    }
+
+    @Test
+    void dashboardReturnsOrgViewTypeForDirector() throws Exception {
+        Cookie session = loginAs("director");
+
+        mockMvc.perform(get("/api/users/me/dashboard").cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.viewType").value("ORG"));
     }
 }
