@@ -14,3 +14,6 @@ target/
 
 # Superpowers subagent-driven-development 工作目錄（各計畫的 ledger/brief/report scratch，不進版控）
 .superpowers/
+
+# 簡報用展示影片，檔案大、非程式碼資產，不進版控
+docs/missionboard-demo.mp4

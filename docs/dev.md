@@ -40,7 +40,15 @@ mvn spring-boot:run
   docker compose down -v && docker compose up -d
   ```
 - Schema 為手寫 DDL，`ddl-auto: none`，不使用 Flyway/Liquibase
-- 測試帳號（密碼皆為 `password123`）：`director` / `chief` / `leader` / `member` / `member2`，對應四種角色（`member2` 屬不同科，供跨科隔離測試）
+- 測試帳號（密碼皆為 `password123`，來源：`sql/02_test_data.sql`）：
+
+  | 帳號 | 顯示名稱 | 角色 | 所屬科別 |
+  |---|---|---|---|
+  | `director` | 主任 | `DIRECTOR` | 資訊部（部級） |
+  | `chief` | 科長 | `SECTION_CHIEF` | 系統科 |
+  | `leader` | 專案負責人 | `PROJECT_LEADER` | 系統科 |
+  | `member` | 專案成員 | `PROJECT_MEMBER` | 系統科 |
+  | `member2` | 專案成員二 | `PROJECT_MEMBER` | 網路科（供跨科隔離測試） |
 - 測試套件使用 H2（PostgreSQL 相容模式）＋ `application-test.yml`，不需要 Docker
 
 ## 常用指令
