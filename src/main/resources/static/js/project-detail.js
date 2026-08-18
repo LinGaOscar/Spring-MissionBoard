@@ -195,6 +195,55 @@
     },
   };
 
+  // KanbanView 與 WbsView 共用：新增大類/子類的選單挑選器邏輯（從 task_category_presets 選單挑選後建立 task_categories）。
+  // 依賴 host 元件已混入 taskBoardMixin（提供 categories 陣列）與 toastMixin（提供 showToast）
+  const categoryPresetMixin = {
+    data() {
+      return {
+        presetsLoaded: false,
+        stagePresets: [],
+        categoryPresets: [],
+        presetPicker: null, // { parentCategoryId: null|number } 開啟中的選單挑選器；null 表示未開啟
+      };
+    },
+    methods: {
+      async loadCategoryPresets() {
+        const [stageRes, categoryRes] = await Promise.all([
+          api(`/api/task-category-presets?type=STAGE&sectionId=${this.sectionId}`),
+          api(`/api/task-category-presets?type=CATEGORY&sectionId=${this.sectionId}`),
+        ]);
+        this.stagePresets = stageRes.success ? stageRes.data : [];
+        this.categoryPresets = categoryRes.success ? categoryRes.data : [];
+        this.presetsLoaded = true;
+        if (!stageRes.success || !categoryRes.success) {
+          this.showToast(stageRes.message || categoryRes.message || '選單載入失敗');
+        }
+      },
+      async openPresetPicker(parentCategoryId) {
+        this.presetPicker = { parentCategoryId };
+        if (!this.presetsLoaded) {
+          await this.loadCategoryPresets();
+        }
+      },
+      closePresetPicker() {
+        this.presetPicker = null;
+      },
+      async createCategoryFromPreset(presetId) {
+        const parentCategoryId = this.presetPicker.parentCategoryId;
+        this.presetPicker = null;
+        const result = await api(`/api/projects/${this.projectId}/task-categories`, {
+          method: 'POST',
+          body: JSON.stringify({ parentCategoryId, presetId, sortOrder: null }),
+        });
+        if (result.success) {
+          this.categories.push(result.data);
+        } else {
+          this.showToast(result.message || '新增分類失敗');
+        }
+      },
+    },
+  };
+
   // KanbanView 與 WbsView 共用：任務編輯 modal 的畫面本身（表單欄位＋儲存/刪除/取消按鈕）。
   // 純展示元件，不呼叫 API——modal.form 透過 v-model 直接改 modal 這個物件（父層傳進來的同一個參照，
   // 不是重新賦值 prop 本身，Vue 不會警告），實際存檔/刪除的 API 呼叫仍由父層的 taskModalMixin 負責，
@@ -251,7 +300,7 @@
 
   const KanbanView = defineComponent({
     name: 'KanbanView',
-    mixins: [toastMixin, taskBoardMixin, taskModalMixin],
+    mixins: [toastMixin, taskBoardMixin, taskModalMixin, categoryPresetMixin],
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
@@ -272,10 +321,6 @@
         ],
         dragging: null, dragOverCol: null, dragIndex: 0,
         categoryPanelOpen: false,
-        presetsLoaded: false,
-        stagePresets: [],
-        categoryPresets: [],
-        presetPicker: null,       // { parentCategoryId: null|number } 開啟中的選單挑選器；null 表示未開啟
         editingCategoryId: null,
         categoryNameDraft: '',
         draggingCategoryId: null,
@@ -352,40 +397,6 @@
             await this.loadAll();
           }
         });
-      },
-      async loadCategoryPresets() {
-        const [stageRes, categoryRes] = await Promise.all([
-          api(`/api/task-category-presets?type=STAGE&sectionId=${this.sectionId}`),
-          api(`/api/task-category-presets?type=CATEGORY&sectionId=${this.sectionId}`),
-        ]);
-        this.stagePresets = stageRes.success ? stageRes.data : [];
-        this.categoryPresets = categoryRes.success ? categoryRes.data : [];
-        this.presetsLoaded = true;
-        if (!stageRes.success || !categoryRes.success) {
-          this.showToast(stageRes.message || categoryRes.message || '選單載入失敗');
-        }
-      },
-      async openPresetPicker(parentCategoryId) {
-        this.presetPicker = { parentCategoryId };
-        if (!this.presetsLoaded) {
-          await this.loadCategoryPresets();
-        }
-      },
-      closePresetPicker() {
-        this.presetPicker = null;
-      },
-      async createCategoryFromPreset(presetId) {
-        const parentCategoryId = this.presetPicker.parentCategoryId;
-        this.presetPicker = null;
-        const result = await api(`/api/projects/${this.projectId}/task-categories`, {
-          method: 'POST',
-          body: JSON.stringify({ parentCategoryId, presetId, sortOrder: null }),
-        });
-        if (result.success) {
-          this.categories.push(result.data);
-        } else {
-          this.showToast(result.message || '新增分類失敗');
-        }
       },
       startEditCategoryName(category) {
         if (!this.canWrite) return;
@@ -719,10 +730,11 @@
 
   const WbsView = defineComponent({
     name: 'WbsView',
-    mixins: [toastMixin, taskBoardMixin, taskModalMixin],
+    mixins: [toastMixin, taskBoardMixin, taskModalMixin, categoryPresetMixin],
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
+      sectionId: { type: Number, default: null },
       dataVersion: { type: Number, default: 0 },
     },
     watch: {
@@ -880,6 +892,19 @@
               </div>
             </div>
           </div>
+
+          <span class="preset-picker-anchor" v-if="canWrite">
+            <button class="btn btn-sm" @click="openPresetPicker(null)">+ 新增大項</button>
+            <div v-if="presetPicker && presetPicker.parentCategoryId === null" class="preset-picker-popover">
+              <p>選擇階段選單項目</p>
+              <ul>
+                <li v-for="p in stagePresets" :key="p.id">
+                  <button class="btn btn-sm" @click="createCategoryFromPreset(p.id)">{{ p.name }}</button>
+                </li>
+              </ul>
+              <button class="btn btn-sm" @click="closePresetPicker">取消</button>
+            </div>
+          </span>
         </div>
         <task-modal v-if="modal.open" :modal="modal" :members="members" :categories="categories" :can-write="canWrite"
                     @save="saveTask" @delete="deleteTask" @close="modal.open = false" />
@@ -1041,7 +1066,7 @@
         </Teleport>
         <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" :data-version="dataVersion" />
         <assignment-view v-else-if="activeTab === 'assignment'" :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />
-        <wbs-view v-else :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />
+        <wbs-view v-else :project-id="projectId" :can-write="canWrite" :section-id="sectionId" :data-version="dataVersion" />
         <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
       </div>
     `,
