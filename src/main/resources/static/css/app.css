@@ -137,3 +137,14 @@ body { font-family: var(--font-ui); background: var(--paper); color: var(--ink);
 .sidebar-project-nav li { padding: 0.5rem 1.5rem 0.5rem 2.25rem; font-size: 0.9rem; cursor: pointer; color: var(--ink); }
 .sidebar-project-nav li:hover { background: var(--surface); }
 .sidebar-project-nav li.active { color: var(--signal); font-weight: 600; border-left: 3px solid var(--signal); padding-left: calc(2.25rem - 3px); background: var(--surface); }
+.dashboard-section { margin-bottom: 2rem; }
+.dashboard-section h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--ink); }
+.dashboard-task-row { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.9rem; }
+.dashboard-task-meta { display: flex; gap: 1rem; align-items: center; font-family: var(--font-mono); font-size: 0.82rem; color: var(--ink-muted); }
+.dashboard-task-meta.overdue { color: var(--danger); font-weight: 600; }
+.dashboard-summary-row { display: flex; justify-content: space-between; align-items: center; padding: 0.9rem 1.1rem; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 0.5rem; }
+.dashboard-summary-row.clickable { cursor: pointer; }
+.dashboard-summary-row.clickable:hover { background: var(--surface); }
+.dashboard-summary-name { font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+.dashboard-summary-stats { font-family: var(--font-mono); font-size: 0.82rem; color: var(--ink-muted); text-align: right; }
+.dashboard-summary-stats.has-overdue { color: var(--danger); }
