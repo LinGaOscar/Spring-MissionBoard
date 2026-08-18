@@ -8,9 +8,11 @@
 1. 側邊欄改為含專案子導覽的樹狀結構（看板/人員派工/WBS 檢視移入側邊欄第二層）
 2. 全站視覺改為白色簡約風格（新色彩/字體 token，套用到既有畫面，不改變既有互動邏輯）
 3. WBS 檢視新增「+ 新增大項」功能（範圍精準對應使用者訴求：只做新增大類，不含新增子類別/改名/刪除/排序）
-4. 首頁改為儀表板：列出「進行中的專案」與「指派給我的任務」
+4. 首頁改為儀表板：依角色分層呈現（操作型角色看個人任務清單；管理型角色看管轄範圍的專案總覽）
 
 設計方案已與使用者以中文逐段確認（色彩/字體 token、側邊欄 ASCII 版面、WBS/首頁範圍），本文件是正式化。
+
+**首頁儀表板的角色分層是設計過程中的修正**：原始版本不分角色，一律顯示「我是成員的專案」＋「指派給我的任務」。但從主管／長官的視角覆核後發現：`SECTION_CHIEF`（科長）與 `DIRECTOR`（主任）在種子資料裡都**不是任何專案的成員**——科長是靠 `canWrite` 的科內範圍權限管專案，主任是純跨科唯讀——照原始設計，這兩個管理層級登入後首頁會是空的，對最需要看到全局狀況的角色反而最沒用。第 4 節已改寫為依角色分三層呈現，詳見下方。
 
 ## 不做的事（明確排除）
 
@@ -152,13 +154,25 @@ WBS 檢視樹狀結構最上方（未歸類節點之前，或所有大類節點�
 ```
 （沿用既有 `.btn`／`.preset-picker-popover` 樣式，不需要新 class）
 
-## 4. 首頁儀表板
+## 4. 首頁儀表板（依角色分三層）
 
 ### 現況
 
 `home.html` 只有 `<h1>歡迎，{displayName}</h1>`，`AuthController` 只傳 `displayName` 給 model。
 
+### 三層視角
+
+| 角色 | 視角 | 內容 |
+|---|---|---|
+| `PROJECT_LEADER`／`PROJECT_MEMBER` | 操作視角（`PERSONAL`） | 我是成員的進行中專案＋指派給我的任務清單 |
+| `SECTION_CHIEF` | 管理視角（`SECTION`） | 本科所有進行中專案的總覽（不限自己是不是成員），每個專案帶概況指標，不列任務細節 |
+| `DIRECTOR` | 總覽視角（`ORG`） | 跨科總覽，依科別分組的專案數與逾期/完成度彙總數字 |
+
+三層共用同一個 `GET /api/users/me/dashboard` 端點，後端依呼叫者角色回傳對應內容，前端依回應裡的 `viewType` 欄位切換渲染哪一種畫面。
+
 ### 目標畫面
+
+**PERSONAL**（`leader`／`member`）：
 
 ```
 ┌─────────────────────────────────┐
@@ -176,9 +190,41 @@ WBS 檢視樹狀結構最上方（未歸類節點之前，或所有大類節點�
 └─────────────────────────────────┘
 ```
 
-- **進行中的專案**：目前使用者是成員、且未封存的專案，卡片樣式沿用既有 `.project-card`，點擊導向 `/projects/{id}`
-- **指派給我的任務**：上述專案範圍內、指派給目前使用者、狀態不是 `DONE` 的任務，依到期日升冪排序（無到期日排最後，沿用既有 `sortByDueDate`／`TaskExportService.sortedByDueDate` 的排序規則），逾期以紅字標示（沿用既有 `isOverdueDate` 判斷），每列顯示任務標題／所屬專案名稱／到期日，點擊導向該任務所屬的 `/projects/{id}`（不深連結到特定任務，開專案詳情頁即可，看板會顯示該任務）
-- 兩區都可能為空，各自顯示空狀態文字（「目前沒有進行中的專案」／「目前沒有指派給你的任務」），不做插圖
+**SECTION**（`chief`）：
+
+```
+┌─────────────────────────────────┐
+│ 系統科 進行中專案總覽              │
+│ ┌─────────────────────────────┐ │
+│ │系統科示範專案         3 個任務 │ │
+│ │              1 逾期・33% 完成 │ │
+│ ├─────────────────────────────┤ │
+│ │另一個專案            5 個任務 │ │
+│ │              0 逾期・80% 完成 │ │
+│ └─────────────────────────────┘ │
+└─────────────────────────────────┘
+```
+每列點擊導向 `/projects/{id}`。
+
+**ORG**（`director`）：
+
+```
+┌─────────────────────────────────┐
+│ 全公司進行中專案總覽                │
+│ ┌─────────────────────────────┐ │
+│ │系統科                2 個專案 │ │
+│ │              1 逾期・45% 完成 │ │
+│ ├─────────────────────────────┤ │
+│ │網路科                1 個專案 │ │
+│ │              0 逾期・100% 完成│ │
+│ └─────────────────────────────┘ │
+└─────────────────────────────────┘
+```
+科別彙總列**不可點擊**（v1 沒有「依科別篩選專案列表」的頁面可以導過去，見「範圍外」，不為了這個彙總畫面額外做篩選功能）。
+
+- 「逾期」定義沿用既有 `isOverdueDate` 語意的後端版本：`dueDate` 不為 null、狀態不是 `DONE`、`dueDate` 早於今天
+- 「完成度」＝ `DONE` 任務數 / 總任務數，四捨五入取整數百分比；總數為 0 時顯示 `--`（沿用 `WbsView.completionLabel` 既有寫法的語意）
+- 三層都可能是空的，各自顯示對應的空狀態文字（「目前沒有進行中的專案」／「目前沒有指派給你的任務」／「本科目前沒有進行中的專案」／「目前沒有進行中的專案」），不做插圖
 
 ### 後端：新端點
 
@@ -193,7 +239,7 @@ public ApiResponse<DashboardDto.Response> dashboard(Principal principal) {
 }
 ```
 
-新增 `DashboardService`（新類別，`user` 或 `task` 套件皆可，建議放 `task` 套件——因為主要邏輯是查任務，且已依賴 `TaskRepository`）：
+新增 `DashboardService`（新類別，放 `task` 套件——主要邏輯是聚合任務資料，且已依賴 `TaskRepository`）：
 
 ```java
 @Service
@@ -203,6 +249,15 @@ public class DashboardService {
     private final TaskRepository taskRepository;
 
     public DashboardDto.Response getDashboard(User user) {
+        return switch (user.getRole()) {
+            case PROJECT_LEADER, PROJECT_MEMBER -> buildPersonalView(user);
+            case SECTION_CHIEF -> buildSectionView(user);
+            case DIRECTOR -> buildOrgView();
+        };
+    }
+
+    // 操作視角：我是成員的進行中專案＋指派給我、尚未完成、專案未封存的任務
+    private DashboardDto.Response buildPersonalView(User user) {
         List<Project> projects = projectRepository.findByMemberUserIdAndArchived(user.getId(), false);
         List<Task> tasks = taskRepository.findActiveByAssigneeId(user.getId(), Task.Status.DONE);
         List<DashboardDto.TaskItem> taskItems = tasks.stream()
@@ -212,32 +267,98 @@ public class DashboardService {
                 t.getId(), t.getProject().getId(), t.getProject().getName(),
                 t.getTitle(), t.getStatus().name(), t.getDueDate()))
             .toList();
-        return new DashboardDto.Response(
+        return DashboardDto.Response.personal(
             projects.stream().map(ProjectDto.Response::from).toList(), taskItems);
+    }
+
+    // 管理視角：本科所有未封存專案，每個專案帶任務數／逾期數／完成度（在記憶體中聚合，
+    // 科內專案數量通常是個位數到十幾，不值得為此寫聚合 SQL）
+    private DashboardDto.Response buildSectionView(User user) {
+        List<Project> projects = projectRepository.findBySectionIdAndArchived(user.getDepartment().getId(), false);
+        List<DashboardDto.ProjectSummary> summaries = projects.stream()
+            .map(p -> summarize(p.getId(), p.getName(), taskRepository.findByProjectId(p.getId())))
+            .toList();
+        return DashboardDto.Response.section(user.getDepartment().getName(), summaries);
+    }
+
+    // 總覽視角：全公司所有未封存專案，依科別分組聚合
+    private DashboardDto.Response buildOrgView() {
+        List<Project> projects = projectRepository.findByArchived(false);
+        Map<Department, List<Project>> bySection = projects.stream()
+            .collect(Collectors.groupingBy(Project::getSection));
+        List<DashboardDto.SectionSummary> summaries = bySection.entrySet().stream()
+            .map(entry -> {
+                List<Task> sectionTasks = entry.getValue().stream()
+                    .flatMap(p -> taskRepository.findByProjectId(p.getId()).stream())
+                    .toList();
+                DashboardDto.ProjectSummary agg = summarize(null, null, sectionTasks);
+                return new DashboardDto.SectionSummary(
+                    entry.getKey().getId(), entry.getKey().getName(),
+                    entry.getValue().size(), agg.overdueCount(), agg.completionLabel());
+            })
+            .toList();
+        return DashboardDto.Response.org(summaries);
+    }
+
+    private DashboardDto.ProjectSummary summarize(Long projectId, String projectName, List<Task> tasks) {
+        int total = tasks.size();
+        int done = (int) tasks.stream().filter(t -> t.getStatus() == Task.Status.DONE).count();
+        int overdue = (int) tasks.stream().filter(this::isOverdue).count();
+        String completionLabel = total == 0 ? "--" : Math.round(done * 100.0 / total) + "%";
+        return new DashboardDto.ProjectSummary(projectId, projectName, total, overdue, completionLabel);
+    }
+
+    private boolean isOverdue(Task t) {
+        return t.getDueDate() != null && t.getStatus() != Task.Status.DONE
+            && t.getDueDate().isBefore(LocalDate.now());
     }
 }
 ```
 
-（排序在 Service 層用 Java `Comparator` 做，不寫進 JPQL 的 `ORDER BY`——沿用 `TaskExportService.sortedByDueDate` 已驗證過的「到期日升冪、無到期日排最後」寫法，避免 `NULLS LAST` 這類方言相依的 SQL 語法在 H2 測試環境與正式 PostgreSQL 之間出現行為差異）
+（`buildSectionView`／`buildOrgView` 都是「載入專案 → 對每個專案查任務 → Java 端聚合」，不是單一大 SQL——內部小規模工具的資料量下（一個科通常幾個到十幾個進行中專案）沒有理由為了聚合先寫複雜 JPQL GROUP BY，之後真的量大再優化）
 
-新增 `TaskRepository` 查詢方法：
+新增 `TaskRepository` 查詢方法（只新增這一個，`SECTION`／`ORG` 視角完全重用既有的 `findByProjectId`／`ProjectRepository.findBySectionIdAndArchived`／`findByArchived`，不需要新查詢）：
 
 ```java
-// 首頁儀表板：跨所有專案抓「指派給我、尚未完成、專案未封存」的任務，不含已封存專案（那些已凍結不需要再關注）
+// 首頁儀表板 PERSONAL 視角：跨所有專案抓「指派給我、尚未完成、專案未封存」的任務，
+// 不含已封存專案（那些已凍結不需要再關注）
 @Query("SELECT t FROM Task t WHERE t.assignee.id = :assigneeId AND t.status <> :excludedStatus "
     + "AND t.project.archived = false")
 List<Task> findActiveByAssigneeId(@Param("assigneeId") Long assigneeId, @Param("excludedStatus") Task.Status excludedStatus);
 ```
 
-新增 `DashboardDto`（新檔案，`task` 套件）：
+新增 `DashboardDto`（新檔案，`task` 套件），用靜態工廠方法讓三種視角互斥的欄位維持 null，呼叫端不用手動記哪些欄位對哪個 `viewType` 有效：
 
 ```java
 public class DashboardDto {
-    public record Response(List<ProjectDto.Response> activeProjects, List<TaskItem> myTasks) {
+
+    public record Response(String viewType,
+                            List<ProjectDto.Response> activeProjects, List<TaskItem> myTasks,
+                            String sectionName, List<ProjectSummary> projectSummaries,
+                            List<SectionSummary> sectionSummaries) {
+        public static Response personal(List<ProjectDto.Response> projects, List<TaskItem> tasks) {
+            return new Response("PERSONAL", projects, tasks, null, null, null);
+        }
+
+        public static Response section(String sectionName, List<ProjectSummary> summaries) {
+            return new Response("SECTION", null, null, sectionName, summaries, null);
+        }
+
+        public static Response org(List<SectionSummary> summaries) {
+            return new Response("ORG", null, null, null, null, summaries);
+        }
     }
 
     public record TaskItem(Long id, Long projectId, String projectName, String title,
                             String status, LocalDate dueDate) {
+    }
+
+    public record ProjectSummary(Long projectId, String projectName,
+                                  int taskCount, int overdueCount, String completionLabel) {
+    }
+
+    public record SectionSummary(Long sectionId, String sectionName,
+                                  int projectCount, int overdueCount, String completionLabel) {
     }
 }
 ```
@@ -247,7 +368,7 @@ public class DashboardDto {
 `home.html` 改掛 Vue 3（跟 `project-list.js` 同樣的轉換模式，沿用同一份 `api()` 骨架寫法），新檔 `home.js`：
 
 - `mounted()` 呼叫 `GET /api/users/me/dashboard`
-- 渲染兩個區塊，專案卡片沿用 `.project-card` 既有樣式，任務列表用新的 `.dashboard-task-row` 樣式（左側標題、右側專案名稱＋到期日，到期日用 `--font-mono`）
+- 樣板依 `viewType` 用 `v-if`/`v-else-if` 切三種畫面：`PERSONAL` 沿用 `.project-card` 卡片＋新的 `.dashboard-task-row` 任務列；`SECTION`／`ORG` 共用同一種「彙總列」樣式（`.dashboard-summary-row`），差在 `SECTION` 每列可點擊、`ORG` 不行
 
 ```css
 .dashboard-section { margin-bottom: 2rem; }
@@ -255,6 +376,12 @@ public class DashboardDto {
 .dashboard-task-row { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.9rem; }
 .dashboard-task-meta { display: flex; gap: 1rem; align-items: center; font-family: var(--font-mono); font-size: 0.82rem; color: var(--ink-muted); }
 .dashboard-task-meta.overdue { color: var(--danger); font-weight: 600; }
+.dashboard-summary-row { display: flex; justify-content: space-between; align-items: center; padding: 0.9rem 1.1rem; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 0.5rem; }
+.dashboard-summary-row.clickable { cursor: pointer; }
+.dashboard-summary-row.clickable:hover { background: var(--surface); }
+.dashboard-summary-name { font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+.dashboard-summary-stats { font-family: var(--font-mono); font-size: 0.82rem; color: var(--ink-muted); text-align: right; }
+.dashboard-summary-stats.has-overdue { color: var(--danger); }
 ```
 
 ## 資料流總覽
@@ -263,7 +390,7 @@ public class DashboardDto {
 |---|---|---|
 | 側邊欄專案子導覽 | 無（純前端 Teleport＋既有 `activeTab` 狀態） | 否，`ProjectController.detail()` 多帶 `projectName` 給 model |
 | WBS 新增大項 | `POST /api/projects/{id}/task-categories`（既有） | 否 |
-| 首頁儀表板 | `GET /api/users/me/dashboard` | 是（新端點＋新 Service＋新 Repository 查詢＋新 DTO） |
+| 首頁儀表板 | `GET /api/users/me/dashboard` | 是（新端點＋新 Service，依角色回傳 PERSONAL／SECTION／ORG 三種內容＋新 Repository 查詢一支＋新 DTO） |
 
 ## 錯誤處理
 
@@ -278,19 +405,23 @@ public class DashboardDto {
 - 不做「指派給我的任務」在首頁直接編輯或拖曳
 - 不做深色模式
 - WBS 檢視不做「新增子類別」（使用者只要求「新增大項」，維持精準對應訴求，不擴大範圍）
+- `SECTION`／`ORG` 視角的彙總列不做「點擊展開任務細節」或「依科別篩選專案列表」——如果之後科長/主任反映彙總數字不夠用，需要下鑽到任務層級，屬於下一輪設計的範圍，不在本次預先做
 
 ## 測試重點
 
 ### 後端（新增測試）
 
-- `DashboardServiceTest`：驗證回傳的 `activeProjects` 只含使用者是成員且未封存的專案；`myTasks` 只含指派給該使用者、狀態非 `DONE`、專案未封存的任務；排序正確（到期日升冪、無到期日排最後、同值 id 升冪）
-- `TaskRepositoryTest` 或直接在 Service 測試涵蓋：封存專案的任務不應出現在結果中；別人的任務不應出現
-- `UserControllerTest`（或新建 `DashboardControllerTest`）：`GET /api/users/me/dashboard` 需要登入（401）；回傳格式正確
+- `DashboardServiceTest`：三個角色分支各自驗證
+  - `PROJECT_LEADER`／`PROJECT_MEMBER` → `viewType="PERSONAL"`，`activeProjects` 只含使用者是成員且未封存的專案；`myTasks` 只含指派給該使用者、狀態非 `DONE`、專案未封存的任務；排序正確（到期日升冪、無到期日排最後、同值 id 升冪）；封存專案的任務、別人的任務都不應出現
+  - `SECTION_CHIEF` → `viewType="SECTION"`，`projectSummaries` 只含該科未封存專案（含自己不是成員的），每筆的 `taskCount`／`overdueCount`／`completionLabel` 數字正確；其他科的專案不應出現
+  - `DIRECTOR` → `viewType="ORG"`，`sectionSummaries` 涵蓋所有科別、彙總數字正確；已封存專案不應被計入任何統計
+  - 邊界案例：某角色底下完全沒有專案/任務時，對應清單回傳空陣列而非 null，`completionLabel` 在總任務數 0 時回傳 `"--"`
+- `UserControllerTest`（或新建 `DashboardControllerTest`）：`GET /api/users/me/dashboard` 需要登入（401）；分別以 `leader`/`chief`/`director` 呼叫，確認 `viewType` 對應正確
 
 ### 前端（實際啟動應用程式手動驗證）
 
 - 視覺 token：抽查看板/人員派工/WBS/專案列表/首頁五個畫面，確認白底、細線邊界、`--signal` 只出現在強調位置，無殘留舊色碼
 - 側邊欄：進入專案詳情頁，確認側邊欄出現專案節點＋三個子項且預設展開；點擊子項確認主內容區跟著切換、子項高亮狀態正確；離開專案回首頁/專案列表，確認側邊欄專案節點消失
 - WBS 新增大項：以有寫入權限角色進入 WBS 檢視，點「+ 新增大項」，確認選單彈出、選擇後樹狀結構新增節點，且看板分頁的分類管理面板同步看得到（同一份 `categories` 資料）
-- 首頁儀表板：以 `leader`（有專案有任務）與一個沒有任何專案的帳號（如新建的 `member2`，若他沒被拉進任何專案）分別登入，確認前者看到專案卡片與任務列表、後者看到兩個空狀態文字；確認逾期任務標紅
+- 首頁儀表板：分別以 `leader`（PERSONAL，有專案有任務）、`chief`（SECTION，本科專案總覽）、`director`（ORG，跨科總覽）、`member2`（PERSONAL，沒有任何專案）登入，確認四種畫面內容與 `viewType` 對應正確、`member2` 看到兩個空狀態文字；確認逾期任務/專案數字標紅、完成度百分比正確；`chief`／`director` 的彙總列確認可讀性（不需要點進任務細節就看得懂哪裡有風險）
 - console 無錯誤、版面無異常，依專案 CLAUDE.md 規則截圖存證
