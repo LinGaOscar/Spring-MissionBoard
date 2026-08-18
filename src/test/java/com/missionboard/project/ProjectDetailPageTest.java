@@ -119,6 +119,15 @@ class ProjectDetailPageTest {
             .andExpect(model().attribute("ownerId", project.getOwner().getId()));
     }
 
+    @Test
+    void detailPageExposesProjectName() throws Exception {
+        Cookie session = loginAs("leaderX");
+
+        mockMvc.perform(get("/projects/" + project.getId()).cookie(session))
+            .andExpect(status().isOk())
+            .andExpect(model().attribute("projectName", project.getName()));
+    }
+
     // DIRECTOR 對任何專案（含跨科）canRead 恆為 true、canArchive 恆為 false（ProjectService.canArchive 的角色 switch）；
     // 這條 pin 住前端 unarchiveProject() 依賴的 canWrite ≡ canArchive 恆等式，避免未來調整角色邏輯時兩者悄悄脫鉤
     @Test

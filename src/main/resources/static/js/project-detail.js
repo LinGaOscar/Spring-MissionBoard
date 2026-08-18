@@ -8,6 +8,7 @@
   const archived = el.dataset.archived === 'true';
   const ownerId = el.dataset.ownerId ? Number(el.dataset.ownerId) : null;
   const sectionId = el.dataset.sectionId ? Number(el.dataset.sectionId) : null;
+  const projectName = el.dataset.projectName;
 
   async function api(url, options = {}) {
     // fetch 失敗（斷線）或伺服器回傳非 JSON（如 CSRF 過期時的 HTML 錯誤頁）都會在此拋出例外；
@@ -891,7 +892,7 @@
     mixins: [toastMixin],
     data() {
       return {
-        projectId, canWrite, canArchive, archived, sectionId, activeTab: 'kanban',
+        projectId, projectName, canWrite, canArchive, archived, sectionId, activeTab: 'kanban',
         ownerId, dataVersion: 0,
         memberPanelOpen: false, membersLoaded: false, membersLoading: false,
         members: [], allUsers: [], addingUserId: null, changingOwnerId: null,
@@ -1028,11 +1029,16 @@
             </div>
           </template>
         </div>
-        <div class="detail-tabs">
-          <button class="btn" :class="{ 'btn-primary': activeTab === 'kanban' }" @click="activeTab = 'kanban'">看板</button>
-          <button class="btn" :class="{ 'btn-primary': activeTab === 'assignment' }" @click="activeTab = 'assignment'">人員派工</button>
-          <button class="btn" :class="{ 'btn-primary': activeTab === 'wbs' }" @click="activeTab = 'wbs'">WBS 檢視</button>
-        </div>
+        <Teleport to="#project-nav-slot">
+          <div class="sidebar-project-nav">
+            <div class="sidebar-project-name">▾ {{ projectName }}</div>
+            <ul>
+              <li :class="{ active: activeTab === 'kanban' }" @click="activeTab = 'kanban'">看板</li>
+              <li :class="{ active: activeTab === 'assignment' }" @click="activeTab = 'assignment'">人員派工</li>
+              <li :class="{ active: activeTab === 'wbs' }" @click="activeTab = 'wbs'">WBS 檢視</li>
+            </ul>
+          </div>
+        </Teleport>
         <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" :data-version="dataVersion" />
         <assignment-view v-else-if="activeTab === 'assignment'" :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />
         <wbs-view v-else :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />

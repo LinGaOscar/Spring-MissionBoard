@@ -33,6 +33,7 @@ public class ProjectController {
         }
         Project project = projectService.getById(id);
         model.addAttribute("projectId", id);
+        model.addAttribute("projectName", project.getName());
         model.addAttribute("canWrite", projectService.canWrite(id, user));
         model.addAttribute("canArchive", projectService.canArchive(id, user));
         model.addAttribute("archived", project.isArchived());

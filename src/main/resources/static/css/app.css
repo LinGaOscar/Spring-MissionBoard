@@ -120,7 +120,7 @@ body { font-family: var(--font-ui); background: var(--paper); color: var(--ink);
 .wbs-task-assignee { color: var(--ink-muted); }
 .wbs-task-due { font-family: var(--font-mono); }
 .wbs-task-due.overdue { color: var(--danger); font-weight: 700; }
-.project-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+.project-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.75rem; }
 .archived-badge { background: #ffe0e0; color: var(--danger); padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
 .member-panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
 .member-list { list-style: none; margin-bottom: 0.75rem; }
@@ -131,3 +131,9 @@ body { font-family: var(--font-ui); background: var(--paper); color: var(--ink);
 .member-add-row select, .member-owner-row select { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; }
 .member-owner-row label { font-size: 0.85rem; color: var(--ink-muted); white-space: nowrap; }
 .wbs-toolbar { margin-bottom: 1rem; }
+.sidebar-project-nav { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.sidebar-project-name { font-size: 0.85rem; font-weight: 600; color: var(--ink-muted); padding: 0 1.5rem 0.5rem; }
+.sidebar-project-nav ul { list-style: none; }
+.sidebar-project-nav li { padding: 0.5rem 1.5rem 0.5rem 2.25rem; font-size: 0.9rem; cursor: pointer; color: var(--ink); }
+.sidebar-project-nav li:hover { background: var(--surface); }
+.sidebar-project-nav li.active { color: var(--signal); font-weight: 600; border-left: 3px solid var(--signal); padding-left: calc(2.25rem - 3px); background: var(--surface); }
