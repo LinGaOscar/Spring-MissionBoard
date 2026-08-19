@@ -691,6 +691,7 @@
         draggingTask: null,
         dragOverCategoryId: undefined, // undefined=未拖曳中；null=懸停在「未歸類」；number=懸停在該分類節點
         subCategoryAdd: { open: false, parentCategoryId: null, name: '' },
+        quickAdd: { open: false, categoryId: null, title: '' },
       };
     },
     computed: {
@@ -747,6 +748,37 @@
         }
         await this.createCategoryWithName(name, this.subCategoryAdd.parentCategoryId);
         this.subCategoryAdd = { open: false, parentCategoryId: null, name: '' };
+      },
+      openQuickAdd(categoryId) {
+        this.quickAdd = { open: true, categoryId, title: '' };
+        this.$nextTick(() => {
+          // 子類別節點的輸入框位於 v-for="child in stage.children" 迴圈內，同名 ref 在 Vue 3
+          // 會收斂成陣列（即使同時只有一個符合 quickAdd.categoryId 的節點會實際掛載，沿用
+          // openSubCategoryAdd() 的既有作法），未歸類節點不在迴圈內、ref 是單一元素，需先攤平判斷
+          const el = Array.isArray(this.$refs.quickAddInput)
+            ? this.$refs.quickAddInput[0] : this.$refs.quickAddInput;
+          if (el) el.focus();
+        });
+      },
+      closeQuickAdd() {
+        this.quickAdd = { open: false, categoryId: null, title: '' };
+      },
+      async submitQuickAdd() {
+        const title = this.quickAdd.title.trim();
+        if (!title) {
+          this.showToast('標題不可為空');
+          return;
+        }
+        const result = await api(`/api/projects/${this.projectId}/tasks`, {
+          method: 'POST',
+          body: JSON.stringify({ categoryId: this.quickAdd.categoryId, title, description: null }),
+        });
+        if (result.success) {
+          this.tasks.push(result.data);
+          this.quickAdd = { open: false, categoryId: null, title: '' };
+        } else {
+          this.showToast(result.message || '新增失敗');
+        }
       },
       taskCount(ids) {
         return this.tasks.filter(t => ids.includes(t.categoryId)).length;
@@ -838,6 +870,13 @@
               <span class="wbs-node-toggle">{{ isExpanded('unassigned') ? '▾' : '▸' }}</span>
               <span class="wbs-node-name">未歸類 ({{ taskCount([null]) }})</span>
               <span class="wbs-node-summary">{{ completionLabel([null]) }}</span>
+              <button v-if="canWrite" class="btn btn-sm wbs-quick-add-btn" @click.stop="openQuickAdd(null)">+ 新增</button>
+            </div>
+            <div v-if="quickAdd.open && quickAdd.categoryId === null" class="wbs-quick-add-row">
+              <input ref="quickAddInput" v-model="quickAdd.title" class="wbs-quick-add-input"
+                     placeholder="任務名稱" @keyup.enter="submitQuickAdd" @keyup.esc="closeQuickAdd" />
+              <button class="btn btn-sm btn-primary" @click="submitQuickAdd">新增</button>
+              <button class="btn btn-sm" @click="closeQuickAdd">取消</button>
             </div>
             <div v-if="isExpanded('unassigned')" class="wbs-task-list">
               <wbs-task-row v-for="t in directTasks(null)" :key="t.id" :task="t" :can-write="canWrite"
@@ -886,7 +925,14 @@
                   <input v-else class="category-name-input" v-model="categoryNameDraft" @click.stop
                          @blur="commitCategoryName(child)" @keyup.enter="commitCategoryName(child)" @keyup.escape="editingCategoryId = null" />
                   <span class="wbs-node-summary">{{ completionLabel([child.id]) }}</span>
+                  <button v-if="canWrite" class="btn btn-sm wbs-quick-add-btn" @click.stop="openQuickAdd(child.id)">+ 新增</button>
                   <button v-if="canWrite" class="btn btn-sm btn-danger" @click.stop="deleteCategory(child)">刪除</button>
+                </div>
+                <div v-if="quickAdd.open && quickAdd.categoryId === child.id" class="wbs-quick-add-row">
+                  <input ref="quickAddInput" v-model="quickAdd.title" class="wbs-quick-add-input"
+                         placeholder="任務名稱" @keyup.enter="submitQuickAdd" @keyup.esc="closeQuickAdd" />
+                  <button class="btn btn-sm btn-primary" @click="submitQuickAdd">新增</button>
+                  <button class="btn btn-sm" @click="closeQuickAdd">取消</button>
                 </div>
                 <div v-if="isExpanded(child.id)" class="wbs-task-list">
                   <wbs-task-row v-for="t in directTasks(child.id)" :key="t.id" :task="t" :can-write="canWrite"
