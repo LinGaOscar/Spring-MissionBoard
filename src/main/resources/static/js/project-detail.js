@@ -246,6 +246,17 @@
           this.showToast(result.message || '新增分類失敗');
         }
       },
+      async createCategoryWithName(name, parentCategoryId) {
+        const result = await api(`/api/projects/${this.projectId}/task-categories`, {
+          method: 'POST',
+          body: JSON.stringify({ parentCategoryId, name, sortOrder: null }),
+        });
+        if (result.success) {
+          this.categories.push(result.data);
+        } else {
+          this.showToast(result.message || '新增分類失敗');
+        }
+      },
       async deleteCategory(category) {
         const hasChildren = this.categories.some(c => c.parentCategoryId === category.id);
         const msg = hasChildren
@@ -689,6 +700,7 @@
         expandedState: {},
         draggingTask: null,
         dragOverCategoryId: undefined, // undefined=未拖曳中；null=懸停在「未歸類」；number=懸停在該分類節點
+        subCategoryAdd: { open: false, parentCategoryId: null, name: '' },
       };
     },
     computed: {
@@ -708,6 +720,43 @@
       },
       stageIds(stage) {
         return [stage.id, ...stage.children.map(c => c.id)];
+      },
+      findActiveStage(preset) {
+        return this.categoryTree.find(s => s.name === preset.name) || null;
+      },
+      isStageActive(preset) {
+        return this.findActiveStage(preset) !== null;
+      },
+      async toggleStage(preset) {
+        const existing = this.findActiveStage(preset);
+        if (existing) {
+          await this.deleteCategory(existing);
+        } else {
+          await this.createCategoryFromPreset(preset.id, null);
+        }
+      },
+      openSubCategoryAdd(parentCategoryId) {
+        this.subCategoryAdd = { open: true, parentCategoryId, name: '' };
+        this.$nextTick(() => {
+          // 這個 input 位於 v-for="stage in categoryTree" 迴圈內，同名 ref 在 Vue 3 會收斂成陣列
+          // （即使同時只有一個符合 subCategoryAdd.parentCategoryId 的節點會實際掛載），
+          // 直接當單一元素呼叫 .focus() 會拋 TypeError，需先攤平陣列
+          const el = Array.isArray(this.$refs.subCategoryAddInput)
+            ? this.$refs.subCategoryAddInput[0] : this.$refs.subCategoryAddInput;
+          if (el) el.focus();
+        });
+      },
+      closeSubCategoryAdd() {
+        this.subCategoryAdd = { open: false, parentCategoryId: null, name: '' };
+      },
+      async submitSubCategoryAdd() {
+        const name = this.subCategoryAdd.name.trim();
+        if (!name) {
+          this.showToast('名稱不可為空');
+          return;
+        }
+        await this.createCategoryWithName(name, this.subCategoryAdd.parentCategoryId);
+        this.subCategoryAdd = { open: false, parentCategoryId: null, name: '' };
       },
       taskCount(ids) {
         return this.tasks.filter(t => ids.includes(t.categoryId)).length;
@@ -783,6 +832,7 @@
     },
     mounted() {
       this.loadAll();
+      this.loadCategoryPresets();
     },
     template: `
       <div>
@@ -809,10 +859,23 @@
           <div v-for="stage in categoryTree" :key="stage.id" class="wbs-node"
                :class="{ 'drag-over': draggingTask && dragOverCategoryId === stage.id }"
                @dragover.prevent="dragOverCategoryId = stage.id" @drop="onCategoryNodeDrop(stage.id)">
-            <div class="wbs-node-header" @click="toggleExpanded(stage.id)">
+            <div class="wbs-node-header"
+                 @click="toggleExpanded(stage.id)"
+                 @dragover.prevent.stop="dragOverCategoryId = stage.id" @drop.stop="onCategoryDrop(stage)">
+              <span v-if="canWrite" class="category-handle" draggable="true"
+                    @dragstart.stop="onCategoryDragStart(stage, $event)">⠿</span>
               <span class="wbs-node-toggle">{{ isExpanded(stage.id) ? '▾' : '▸' }}</span>
-              <span class="wbs-node-name">{{ stage.name }} ({{ taskCount(stageIds(stage)) }})</span>
+              <span v-if="editingCategoryId !== stage.id" class="wbs-node-name" @click.stop @dblclick="startEditCategoryName(stage)">{{ stage.name }} ({{ taskCount(stageIds(stage)) }})</span>
+              <input v-else class="category-name-input" v-model="categoryNameDraft" @click.stop
+                     @blur="commitCategoryName(stage)" @keyup.enter="commitCategoryName(stage)" @keyup.escape="editingCategoryId = null" />
               <span class="wbs-node-summary">{{ completionLabel(stageIds(stage)) }}</span>
+              <button v-if="canWrite" class="btn btn-sm" @click.stop="openSubCategoryAdd(stage.id)">+ 新增子項</button>
+            </div>
+            <div v-if="subCategoryAdd.open && subCategoryAdd.parentCategoryId === stage.id" class="wbs-quick-add-row">
+              <input ref="subCategoryAddInput" v-model="subCategoryAdd.name" class="wbs-quick-add-input"
+                     placeholder="子類別名稱" @keyup.enter="submitSubCategoryAdd" @keyup.esc="closeSubCategoryAdd" />
+              <button class="btn btn-sm btn-primary" @click="submitSubCategoryAdd">新增</button>
+              <button class="btn btn-sm" @click="closeSubCategoryAdd">取消</button>
             </div>
             <div v-if="isExpanded(stage.id)" class="wbs-node-body">
               <wbs-task-row v-for="t in directTasks(stage.id)" :key="t.id" :task="t" :can-write="canWrite"
@@ -821,10 +884,17 @@
               <div v-for="child in stage.children" :key="child.id" class="wbs-node wbs-node-child"
                    :class="{ 'drag-over': draggingTask && dragOverCategoryId === child.id }"
                    @dragover.prevent.stop="dragOverCategoryId = child.id" @drop.stop="onCategoryNodeDrop(child.id)">
-                <div class="wbs-node-header" @click="toggleExpanded(child.id)">
+                <div class="wbs-node-header"
+                     @click="toggleExpanded(child.id)"
+                     @dragover.prevent.stop="dragOverCategoryId = child.id" @drop.stop="onCategoryDrop(child)">
+                  <span v-if="canWrite" class="category-handle" draggable="true"
+                        @dragstart.stop="onCategoryDragStart(child, $event)">⠿</span>
                   <span class="wbs-node-toggle">{{ isExpanded(child.id) ? '▾' : '▸' }}</span>
-                  <span class="wbs-node-name">{{ child.name }} ({{ taskCount([child.id]) }})</span>
+                  <span v-if="editingCategoryId !== child.id" class="wbs-node-name" @click.stop @dblclick="startEditCategoryName(child)">{{ child.name }} ({{ taskCount([child.id]) }})</span>
+                  <input v-else class="category-name-input" v-model="categoryNameDraft" @click.stop
+                         @blur="commitCategoryName(child)" @keyup.enter="commitCategoryName(child)" @keyup.escape="editingCategoryId = null" />
                   <span class="wbs-node-summary">{{ completionLabel([child.id]) }}</span>
+                  <button v-if="canWrite" class="btn btn-sm btn-danger" @click.stop="deleteCategory(child)">刪除</button>
                 </div>
                 <div v-if="isExpanded(child.id)" class="wbs-task-list">
                   <wbs-task-row v-for="t in directTasks(child.id)" :key="t.id" :task="t" :can-write="canWrite"
@@ -835,18 +905,13 @@
             </div>
           </div>
 
-          <span class="preset-picker-anchor" v-if="canWrite">
-            <button class="btn btn-sm" @click="openPresetPicker(null)">+ 新增大項</button>
-            <div v-if="presetPicker && presetPicker.parentCategoryId === null" class="preset-picker-popover">
-              <p>選擇階段選單項目</p>
-              <ul>
-                <li v-for="p in stagePresets" :key="p.id">
-                  <button class="btn btn-sm" @click="createCategoryFromPreset(p.id)">{{ p.name }}</button>
-                </li>
-              </ul>
-              <button class="btn btn-sm" @click="closePresetPicker">取消</button>
-            </div>
-          </span>
+          <div v-if="canWrite" class="stage-toggle-row">
+            <button v-for="p in stagePresets" :key="p.id"
+                    class="btn btn-sm stage-toggle-btn" :class="{ active: isStageActive(p) }"
+                    @click="toggleStage(p)">
+              {{ p.name }} · {{ isStageActive(p) ? '已啟用' : '啟用' }}
+            </button>
+          </div>
         </div>
         <task-modal v-if="modal.open" :modal="modal" :members="members" :categories="categories" :can-write="canWrite"
                     @save="saveTask" @delete="deleteTask" @close="modal.open = false" />
