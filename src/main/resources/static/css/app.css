@@ -81,15 +81,9 @@ body { font-family: var(--font-ui); background: var(--paper); color: var(--ink);
 .task-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--ink-muted); }
 .task-due { font-family: var(--font-mono); }
 .task-due.overdue { color: var(--danger); font-weight: 700; }
-.category-panel { background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:1rem 1.25rem; margin-bottom:1.5rem; }
-.category-row-group { margin-bottom:0.4rem; }
-.category-row { display:flex; align-items:center; gap:0.5rem; padding:0.4rem 0.25rem; border-radius:4px; cursor:grab; }
-.category-row:active { cursor:grabbing; }
-.category-row-child { padding-left:1.75rem; }
-.category-handle { color:var(--ink-muted); font-size:0.9rem; }
-.category-name { flex:1; }
+.category-handle { color:var(--ink-muted); font-size:0.9rem; cursor:grab; }
+.category-handle:active { cursor:grabbing; }
 .category-name-input { flex:1; padding:0.2rem 0.4rem; border:1px solid var(--signal); border-radius:4px; }
-.category-row-actions { display:flex; align-items:center; gap:0.25rem; margin-left:auto; }
 .preset-picker-anchor { position:relative; display:inline-block; }
 .preset-picker-popover { position:absolute; top:calc(100% + 4px); left:0; background:var(--paper); border:1px solid var(--line); border-radius:6px; z-index:300; min-width:180px; padding:0.6rem; }
 .preset-picker-popover p { font-size:0.8rem; color:var(--ink-muted); margin-bottom:0.4rem; }
