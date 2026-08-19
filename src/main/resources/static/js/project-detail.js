@@ -392,7 +392,6 @@
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
-      sectionId: { type: Number, default: null },
       dataVersion: { type: Number, default: 0 },
     },
     watch: {
@@ -409,11 +408,6 @@
         ],
         dragging: null, dragOverCol: null, dragIndex: 0,
       };
-    },
-    computed: {
-      categoryTree() {
-        return buildCategoryTree(this.categories);
-      },
     },
     methods: {
       tasksIn(status) {
@@ -722,6 +716,8 @@
       async toggleStage(preset) {
         const existing = this.findActiveStage(preset);
         if (existing) {
+          // 按鈕文字是「停用」，但實際呼叫共用的 deleteCategory()，其確認對話框文字固定講「刪除」，
+          // 語意上兩者等價（停用＝刪除該分類），沿用共用訊息不另外客製
           await this.deleteCategory(existing);
         } else {
           await this.createCategoryFromPreset(preset.id, null);
@@ -792,6 +788,8 @@
             method: 'PATCH', body: JSON.stringify({ status: nextStatus, sortOrder: targetIndex }),
           });
           if (!result.success) {
+            // 只在 status 仍是這次呼叫剛設定的值時才回滾；若後續另一次呼叫已成功把它改成別的值，
+            // 代表本地已是最新狀態，不可用這次失敗的舊值覆蓋掉
             if (task.status === nextStatus) task.status = prevStatus;
             this.showToast(result.message || '狀態切換失敗');
           }
@@ -918,6 +916,7 @@
                      @blur="commitCategoryName(stage)" @keyup.enter="commitCategoryName(stage)" @keyup.escape="editingCategoryId = null" />
               <span class="wbs-node-summary">{{ completionLabel(stageIds(stage)) }}</span>
               <button v-if="canWrite" class="btn btn-sm" @click.stop="openSubCategoryAdd(stage.id)">+ 新增子項</button>
+              <button v-if="canWrite" class="btn btn-sm btn-danger" @click.stop="deleteCategory(stage)">刪除</button>
             </div>
             <div v-if="subCategoryAdd.open && subCategoryAdd.parentCategoryId === stage.id" class="wbs-quick-add-row">
               <input ref="subCategoryAddInput" v-model="subCategoryAdd.name" class="wbs-quick-add-input"
@@ -1129,7 +1128,7 @@
             </ul>
           </div>
         </Teleport>
-        <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :section-id="sectionId" :data-version="dataVersion" />
+        <kanban-view v-if="activeTab === 'kanban'" :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />
         <assignment-view v-else-if="activeTab === 'assignment'" :project-id="projectId" :can-write="canWrite" :data-version="dataVersion" />
         <wbs-view v-else :project-id="projectId" :can-write="canWrite" :section-id="sectionId" :data-version="dataVersion" />
         <div v-if="toastMessage" class="toast">{{ toastMessage }}</div>
