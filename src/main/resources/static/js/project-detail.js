@@ -650,7 +650,7 @@
       task: { type: Object, required: true },
       canWrite: { type: Boolean, default: false },
     },
-    emits: ['dragstart', 'dragend', 'open'],
+    emits: ['dragstart', 'dragend', 'open', 'cycle-status'],
     methods: {
       isOverdue(t) {
         return isOverdueDate(t);
@@ -664,7 +664,8 @@
            :draggable="canWrite" @dragstart="$emit('dragstart', $event)"
            @dragend="$emit('dragend')" @click="$emit('open')">
         <span class="wbs-task-title">{{ task.title }}</span>
-        <span class="wbs-task-status">{{ statusLabel(task.status) }}</span>
+        <button v-if="canWrite" class="btn btn-sm wbs-task-status-btn" @click.stop="$emit('cycle-status')">{{ statusLabel(task.status) }}</button>
+        <span v-else class="wbs-task-status">{{ statusLabel(task.status) }}</span>
         <span class="wbs-task-assignee">{{ task.assigneeDisplayName || '--' }}</span>
         <span class="wbs-task-due" :class="{ overdue: isOverdue(task) }">{{ task.dueDate || '--' }}</span>
       </div>
@@ -780,6 +781,22 @@
           this.showToast(result.message || '新增失敗');
         }
       },
+      async cycleTaskStatus(task) {
+        const order = ['NOT_STARTED', 'IN_PROGRESS', 'DONE'];
+        const nextStatus = order[(order.indexOf(task.status) + 1) % order.length];
+        const prevStatus = task.status;
+        const targetIndex = this.tasks.filter(t => t.id !== task.id && t.status === nextStatus).length;
+        task.status = nextStatus;
+        await this.queueTaskWrite(task.id, async () => {
+          const result = await api(`/api/projects/${this.projectId}/tasks/${task.id}/move`, {
+            method: 'PATCH', body: JSON.stringify({ status: nextStatus, sortOrder: targetIndex }),
+          });
+          if (!result.success) {
+            if (task.status === nextStatus) task.status = prevStatus;
+            this.showToast(result.message || '狀態切換失敗');
+          }
+        });
+      },
       taskCount(ids) {
         return this.tasks.filter(t => ids.includes(t.categoryId)).length;
       },
@@ -881,7 +898,8 @@
             <div v-if="isExpanded('unassigned')" class="wbs-task-list">
               <wbs-task-row v-for="t in directTasks(null)" :key="t.id" :task="t" :can-write="canWrite"
                             @dragstart="onTaskDragStart(t, $event)"
-                            @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)" />
+                            @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)"
+                            @cycle-status="cycleTaskStatus(t)" />
             </div>
           </div>
 
@@ -910,7 +928,8 @@
             <div v-if="isExpanded(stage.id)" class="wbs-node-body">
               <wbs-task-row v-for="t in directTasks(stage.id)" :key="t.id" :task="t" :can-write="canWrite"
                             @dragstart="onTaskDragStart(t, $event)"
-                            @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)" />
+                            @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)"
+                            @cycle-status="cycleTaskStatus(t)" />
               <div v-for="child in stage.children" :key="child.id" class="wbs-node wbs-node-child"
                    :class="{ 'drag-over': draggingTask && dragOverCategoryId === child.id }"
                    @dragover.prevent.stop="dragOverCategoryId = child.id" @drop.stop="onCategoryNodeDrop(child.id)">
@@ -937,7 +956,8 @@
                 <div v-if="isExpanded(child.id)" class="wbs-task-list">
                   <wbs-task-row v-for="t in directTasks(child.id)" :key="t.id" :task="t" :can-write="canWrite"
                                 @dragstart="onTaskDragStart(t, $event)"
-                                @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)" />
+                                @dragend="draggingTask = null; dragOverCategoryId = undefined" @open="openEdit(t)"
+                                @cycle-status="cycleTaskStatus(t)" />
                 </div>
               </div>
             </div>
