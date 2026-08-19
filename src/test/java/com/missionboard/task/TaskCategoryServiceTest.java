@@ -61,7 +61,7 @@ class TaskCategoryServiceTest {
     @Test
     void createsStageLevelCategoryFromStagePresetSnapshot() {
         TaskCategory category = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
         assertThat(category.getName()).isEqualTo("SIT");
         assertThat(category.getParentCategory()).isNull();
     }
@@ -69,45 +69,62 @@ class TaskCategoryServiceTest {
     @Test
     void createsSubCategoryUnderStageLevelParent() {
         TaskCategory stage = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
         TaskCategory sub = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(stage.getId(), categoryPreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(stage.getId(), categoryPreset.getId(), null, null));
         assertThat(sub.getParentCategory().getId()).isEqualTo(stage.getId());
     }
 
     @Test
     void rejectsThirdLevelCategory() {
         TaskCategory stage = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
         TaskCategory sub = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(stage.getId(), categoryPreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(stage.getId(), categoryPreset.getId(), null, null));
 
         assertThatThrownBy(() -> taskCategoryService.create(project.getId(),
-                new TaskCategoryDto.CreateRequest(sub.getId(), categoryPreset.getId(), null)))
+                new TaskCategoryDto.CreateRequest(sub.getId(), categoryPreset.getId(), null, null)))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void createsSubCategoryFromNameWhenPresetIdMissing() {
+        TaskCategory stage = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory sub = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(stage.getId(), null, "自訂子類別", null));
+        assertThat(sub.getName()).isEqualTo("自訂子類別");
+        assertThat(sub.getParentCategory().getId()).isEqualTo(stage.getId());
+    }
+
+    @Test
+    void rejectsCreateWhenBothPresetIdAndNameMissing() {
+        assertThatThrownBy(() -> taskCategoryService.create(project.getId(),
+                new TaskCategoryDto.CreateRequest(null, null, null, null)))
             .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void rejectsPresetFromOtherSectionNotVisibleToThisProject() {
         assertThatThrownBy(() -> taskCategoryService.create(project.getId(),
-                new TaskCategoryDto.CreateRequest(null, otherSectionStagePreset.getId(), null)))
+                new TaskCategoryDto.CreateRequest(null, otherSectionStagePreset.getId(), null, null)))
             .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void rejectsParentCategoryFromAnotherProject() {
         TaskCategory foreignStage = taskCategoryService.create(otherProject.getId(),
-            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
 
         assertThatThrownBy(() -> taskCategoryService.create(project.getId(),
-                new TaskCategoryDto.CreateRequest(foreignStage.getId(), categoryPreset.getId(), null)))
+                new TaskCategoryDto.CreateRequest(foreignStage.getId(), categoryPreset.getId(), null, null)))
             .isInstanceOf(SecurityException.class);
     }
 
     @Test
     void updatesNameAndSortOrder() {
         TaskCategory category = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
         TaskCategory updated = taskCategoryService.update(project.getId(), category.getId(),
             new TaskCategoryDto.UpdateRequest("改名後階段", 5));
         assertThat(updated.getName()).isEqualTo("改名後階段");
@@ -117,9 +134,9 @@ class TaskCategoryServiceTest {
     @Test
     void deleteCascadesToChildCategory() {
         TaskCategory stage = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
         TaskCategory sub = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(stage.getId(), categoryPreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(stage.getId(), categoryPreset.getId(), null, null));
 
         taskCategoryService.delete(project.getId(), stage.getId());
 
@@ -131,7 +148,7 @@ class TaskCategoryServiceTest {
     @Test
     void deletingCategoryOrphansItsTasksInsteadOfDeletingThem() {
         TaskCategory category = taskCategoryService.create(project.getId(),
-            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null));
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
 
         Task task = new Task();
         task.setProject(project);

@@ -22,11 +22,11 @@ public class TaskCategoryService {
         return taskCategoryRepository.findByProjectId(projectId);
     }
 
-    // 建立類別：從選單快照名稱；深度上限兩層在此強制（service 層驗證，不用 DB CHECK）
+    // 建立類別：presetId 從選單快照名稱，或直接用 name 建立；深度上限兩層在此強制（service 層驗證，不用 DB CHECK）
     @Transactional
     public TaskCategory create(Long projectId, TaskCategoryDto.CreateRequest req) {
-        if (req.presetId() == null) {
-            throw new IllegalArgumentException("選單項目為必填");
+        if (req.presetId() == null && (req.name() == null || req.name().isBlank())) {
+            throw new IllegalArgumentException("選單項目或名稱擇一必填");
         }
         Project project = projectService.getById(projectId);
         TaskCategory parent = null;
@@ -37,21 +37,27 @@ public class TaskCategoryService {
             }
         }
 
-        TaskCategoryPreset preset = taskCategoryPresetRepository.findById(req.presetId())
-            .orElseThrow(() -> new EntityNotFoundException("選單項目不存在"));
-        TaskCategoryPreset.Type expectedType = parent == null
-            ? TaskCategoryPreset.Type.STAGE : TaskCategoryPreset.Type.CATEGORY;
-        if (preset.getType() != expectedType) {
-            throw new IllegalArgumentException("選單項目型別不符");
-        }
-        if (preset.getSection() != null && !preset.getSection().getId().equals(project.getSection().getId())) {
-            throw new IllegalArgumentException("選單項目不屬於此專案科別");
+        String name;
+        if (req.presetId() != null) {
+            TaskCategoryPreset preset = taskCategoryPresetRepository.findById(req.presetId())
+                .orElseThrow(() -> new EntityNotFoundException("選單項目不存在"));
+            TaskCategoryPreset.Type expectedType = parent == null
+                ? TaskCategoryPreset.Type.STAGE : TaskCategoryPreset.Type.CATEGORY;
+            if (preset.getType() != expectedType) {
+                throw new IllegalArgumentException("選單項目型別不符");
+            }
+            if (preset.getSection() != null && !preset.getSection().getId().equals(project.getSection().getId())) {
+                throw new IllegalArgumentException("選單項目不屬於此專案科別");
+            }
+            name = preset.getName();
+        } else {
+            name = req.name().trim();
         }
 
         TaskCategory category = new TaskCategory();
         category.setProject(project);
         category.setParentCategory(parent);
-        category.setName(preset.getName());
+        category.setName(name);
         category.setSortOrder(req.sortOrder() != null ? req.sortOrder() : 0);
         return taskCategoryRepository.save(category);
     }

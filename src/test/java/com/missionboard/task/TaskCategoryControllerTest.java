@@ -106,6 +106,25 @@ class TaskCategoryControllerTest {
     }
 
     @Test
+    void createCategoryFromNameWhenPresetIdMissing() throws Exception {
+        Cookie session = loginAs("leaderA");
+        mockMvc.perform(post("/api/projects/{id}/task-categories", project.getId()).cookie(session).with(csrf())
+                .contentType("application/json")
+                .content("{\"parentCategoryId\":null,\"name\":\"自訂名稱\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.name").value("自訂名稱"));
+    }
+
+    @Test
+    void createFailsWhenBothPresetIdAndNameMissing() throws Exception {
+        Cookie session = loginAs("leaderA");
+        mockMvc.perform(post("/api/projects/{id}/task-categories", project.getId()).cookie(session).with(csrf())
+                .contentType("application/json")
+                .content("{\"parentCategoryId\":null}"))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void createDeniedForOutsideSectionUser() throws Exception {
         Cookie session = loginAs("chiefB");
         mockMvc.perform(post("/api/projects/{id}/task-categories", project.getId()).cookie(session).with(csrf())

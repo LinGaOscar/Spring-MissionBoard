@@ -2,7 +2,7 @@ package com.missionboard.task;
 
 public class TaskCategoryDto {
 
-    public record CreateRequest(Long parentCategoryId, Long presetId, Integer sortOrder) {
+    public record CreateRequest(Long parentCategoryId, Long presetId, String name, Integer sortOrder) {
     }
 
     public record UpdateRequest(String name, Integer sortOrder) {
