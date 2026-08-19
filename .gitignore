@@ -17,3 +17,6 @@ target/
 
 # 簡報用展示影片，檔案大、非程式碼資產，不進版控
 docs/missionboard-demo.mp4
+
+# harness 本機控制檔（push-approved、health-check-rounds 等），純本機狀態不進版控
+.claude/
