@@ -200,10 +200,8 @@
   const categoryPresetMixin = {
     data() {
       return {
-        presetsLoaded: false,
         stagePresets: [],
         categoryPresets: [],
-        presetPicker: null, // { parentCategoryId: null|number } 開啟中的選單挑選器；null 表示未開啟
         editingCategoryId: null,
         categoryNameDraft: '',
         draggingCategoryId: null,
@@ -217,25 +215,11 @@
         ]);
         this.stagePresets = stageRes.success ? stageRes.data : [];
         this.categoryPresets = categoryRes.success ? categoryRes.data : [];
-        this.presetsLoaded = true;
         if (!stageRes.success || !categoryRes.success) {
           this.showToast(stageRes.message || categoryRes.message || '選單載入失敗');
         }
       },
-      async openPresetPicker(parentCategoryId) {
-        this.presetPicker = { parentCategoryId };
-        if (!this.presetsLoaded) {
-          await this.loadCategoryPresets();
-        }
-      },
-      closePresetPicker() {
-        this.presetPicker = null;
-      },
       async createCategoryFromPreset(presetId, parentCategoryId) {
-        if (parentCategoryId === undefined) {
-          parentCategoryId = this.presetPicker ? this.presetPicker.parentCategoryId : null;
-        }
-        this.presetPicker = null;
         const result = await api(`/api/projects/${this.projectId}/task-categories`, {
           method: 'POST',
           body: JSON.stringify({ parentCategoryId, presetId, sortOrder: null }),
@@ -289,13 +273,17 @@
         this.editingCategoryId = null;
         const name = this.categoryNameDraft.trim();
         if (!name || name === category.name) return;
-        const prev = category.name;
-        category.name = name;
+        // category 可能是 buildCategoryTree() 對大類做的淺拷貝（WbsView.categoryTree 每次重算都會產生新物件），
+        // 直接改 category.name 不會反映到 this.categories，下次任何操作觸發樹重算就會被打回原名；
+        // 一律從 this.categories 找回真正的響應式物件再改，子類別（原本就是 live 物件）也走同一條路徑不受影響
+        const target = this.categories.find(c => c.id === category.id) || category;
+        const prev = target.name;
+        target.name = name;
         const result = await api(`/api/projects/${this.projectId}/task-categories/${category.id}`, {
           method: 'PUT', body: JSON.stringify({ name }),
         });
         if (!result.success) {
-          category.name = prev;
+          target.name = prev;
           this.showToast(result.message || '改名失敗');
         }
       },
@@ -398,7 +386,9 @@
 
   const KanbanView = defineComponent({
     name: 'KanbanView',
-    mixins: [toastMixin, taskBoardMixin, taskModalMixin, categoryPresetMixin],
+    // Task 3 移除看板的「分類管理」面板後，categoryPresetMixin（大類/子類建立、改名、刪除、拖曳排序）
+    // 已全部搬到 WbsView 使用，KanbanView 本身不再消費其中任何 data/method，故不再混入
+    mixins: [toastMixin, taskBoardMixin, taskModalMixin],
     props: {
       projectId: { type: Number, required: true },
       canWrite: { type: Boolean, default: false },
@@ -863,7 +853,8 @@
                  @click="toggleExpanded(stage.id)"
                  @dragover.prevent="dragOverCategoryId = stage.id" @drop="onCategoryDrop(stage)">
               <span v-if="canWrite" class="category-handle" draggable="true"
-                    @dragstart.stop="onCategoryDragStart(stage, $event)">⠿</span>
+                    @dragstart.stop="onCategoryDragStart(stage, $event)"
+                    @dragend="draggingCategoryId = null">⠿</span>
               <span class="wbs-node-toggle">{{ isExpanded(stage.id) ? '▾' : '▸' }}</span>
               <span v-if="editingCategoryId !== stage.id" class="wbs-node-name" @click.stop @dblclick="startEditCategoryName(stage)">{{ stage.name }} ({{ taskCount(stageIds(stage)) }})</span>
               <input v-else class="category-name-input" v-model="categoryNameDraft" @click.stop
@@ -888,7 +879,8 @@
                      @click="toggleExpanded(child.id)"
                      @dragover.prevent="dragOverCategoryId = child.id" @drop="onCategoryDrop(child)">
                   <span v-if="canWrite" class="category-handle" draggable="true"
-                        @dragstart.stop="onCategoryDragStart(child, $event)">⠿</span>
+                        @dragstart.stop="onCategoryDragStart(child, $event)"
+                        @dragend="draggingCategoryId = null">⠿</span>
                   <span class="wbs-node-toggle">{{ isExpanded(child.id) ? '▾' : '▸' }}</span>
                   <span v-if="editingCategoryId !== child.id" class="wbs-node-name" @click.stop @dblclick="startEditCategoryName(child)">{{ child.name }} ({{ taskCount([child.id]) }})</span>
                   <input v-else class="category-name-input" v-model="categoryNameDraft" @click.stop

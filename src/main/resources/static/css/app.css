@@ -84,11 +84,6 @@ body { font-family: var(--font-ui); background: var(--paper); color: var(--ink);
 .category-handle { color:var(--ink-muted); font-size:0.9rem; cursor:grab; }
 .category-handle:active { cursor:grabbing; }
 .category-name-input { flex:1; padding:0.2rem 0.4rem; border:1px solid var(--signal); border-radius:4px; }
-.preset-picker-anchor { position:relative; display:inline-block; }
-.preset-picker-popover { position:absolute; top:calc(100% + 4px); left:0; background:var(--paper); border:1px solid var(--line); border-radius:6px; z-index:300; min-width:180px; padding:0.6rem; }
-.preset-picker-popover p { font-size:0.8rem; color:var(--ink-muted); margin-bottom:0.4rem; }
-.preset-picker-popover ul { list-style:none; margin:0 0 0.4rem; padding:0; }
-.preset-picker-popover li { margin-bottom:0.25rem; }
 .detail-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
 .assignment-toolbar { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
 .assignment-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; cursor: pointer; }
