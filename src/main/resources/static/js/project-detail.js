@@ -228,8 +228,10 @@
       closePresetPicker() {
         this.presetPicker = null;
       },
-      async createCategoryFromPreset(presetId) {
-        const parentCategoryId = this.presetPicker.parentCategoryId;
+      async createCategoryFromPreset(presetId, parentCategoryId) {
+        if (parentCategoryId === undefined) {
+          parentCategoryId = this.presetPicker ? this.presetPicker.parentCategoryId : null;
+        }
         this.presetPicker = null;
         const result = await api(`/api/projects/${this.projectId}/task-categories`, {
           method: 'POST',
@@ -239,6 +241,28 @@
           this.categories.push(result.data);
         } else {
           this.showToast(result.message || '新增分類失敗');
+        }
+      },
+      async deleteCategory(category) {
+        const hasChildren = this.categories.some(c => c.parentCategoryId === category.id);
+        const msg = hasChildren
+          ? `確定刪除「${category.name}」？其下所有子類別將一併刪除，相關任務會變成未歸類。`
+          : `確定刪除「${category.name}」？相關任務會變成未歸類。`;
+        if (!confirm(msg)) return;
+        const result = await api(`/api/projects/${this.projectId}/task-categories/${category.id}`, { method: 'DELETE' });
+        if (result.success) {
+          const removedIds = hasChildren
+            ? [category.id, ...this.categories.filter(c => c.parentCategoryId === category.id).map(c => c.id)]
+            : [category.id];
+          this.categories = this.categories.filter(c => !removedIds.includes(c.id));
+          // 後端 ON DELETE SET NULL 讓被刪分類底下的任務落回未歸類；本地也要同步，
+          // 否則任務卡片編輯 modal 的「所屬類別」下拉選單會因 categoryId 對不到任何選項而顯示空白，
+          // 要等重新整理頁面才會變回「未歸類」
+          this.tasks.forEach(t => {
+            if (removedIds.includes(t.categoryId)) t.categoryId = null;
+          });
+        } else {
+          this.showToast(result.message || '刪除失敗');
         }
       },
     },
@@ -416,28 +440,6 @@
         if (!result.success) {
           category.name = prev;
           this.showToast(result.message || '改名失敗');
-        }
-      },
-      async deleteCategory(category) {
-        const hasChildren = this.categories.some(c => c.parentCategoryId === category.id);
-        const msg = hasChildren
-          ? `確定刪除「${category.name}」？其下所有子類別將一併刪除，相關任務會變成未歸類。`
-          : `確定刪除「${category.name}」？相關任務會變成未歸類。`;
-        if (!confirm(msg)) return;
-        const result = await api(`/api/projects/${this.projectId}/task-categories/${category.id}`, { method: 'DELETE' });
-        if (result.success) {
-          const removedIds = hasChildren
-            ? [category.id, ...this.categories.filter(c => c.parentCategoryId === category.id).map(c => c.id)]
-            : [category.id];
-          this.categories = this.categories.filter(c => !removedIds.includes(c.id));
-          // 後端 ON DELETE SET NULL 讓被刪分類底下的任務落回未歸類；本地也要同步，
-          // 否則任務卡片編輯 modal 的「所屬類別」下拉選單會因 categoryId 對不到任何選項而顯示空白，
-          // 要等重新整理頁面才會變回「未歸類」
-          this.tasks.forEach(t => {
-            if (removedIds.includes(t.categoryId)) t.categoryId = null;
-          });
-        } else {
-          this.showToast(result.message || '刪除失敗');
         }
       },
       onCategoryDragStart(category, ev) {
