@@ -861,7 +861,7 @@
                @dragover.prevent="dragOverCategoryId = stage.id" @drop="onCategoryNodeDrop(stage.id)">
             <div class="wbs-node-header"
                  @click="toggleExpanded(stage.id)"
-                 @dragover.prevent.stop="dragOverCategoryId = stage.id" @drop.stop="onCategoryDrop(stage)">
+                 @dragover.prevent="dragOverCategoryId = stage.id" @drop="onCategoryDrop(stage)">
               <span v-if="canWrite" class="category-handle" draggable="true"
                     @dragstart.stop="onCategoryDragStart(stage, $event)">⠿</span>
               <span class="wbs-node-toggle">{{ isExpanded(stage.id) ? '▾' : '▸' }}</span>
@@ -886,7 +886,7 @@
                    @dragover.prevent.stop="dragOverCategoryId = child.id" @drop.stop="onCategoryNodeDrop(child.id)">
                 <div class="wbs-node-header"
                      @click="toggleExpanded(child.id)"
-                     @dragover.prevent.stop="dragOverCategoryId = child.id" @drop.stop="onCategoryDrop(child)">
+                     @dragover.prevent="dragOverCategoryId = child.id" @drop="onCategoryDrop(child)">
                   <span v-if="canWrite" class="category-handle" draggable="true"
                         @dragstart.stop="onCategoryDragStart(child, $event)">⠿</span>
                   <span class="wbs-node-toggle">{{ isExpanded(child.id) ? '▾' : '▸' }}</span>
