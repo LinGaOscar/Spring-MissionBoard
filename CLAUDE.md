@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `tasks`/`task_categories`/`task_category_presets` 已取代舊的 `wbs_nodes`/`wbs_presets`，`wbs` 套件與相關 DDL 已移除。專案詳情頁為三分頁：看板（`KanbanView`，預設分頁）可拖曳卡片跨欄、建立任務、歸類、指派；人員派工（`AssignmentView`）依成員分欄，可拖曳卡片跨欄改指派人；WBS 檢視（`WbsView`）依兩層分類（大類/子類）呈現樹狀結構＋固定的「未歸類」節點，可拖曳任務改變所屬大類/子類，皆走 REST＋樂觀更新。舊的樹編輯器／人員派工／甘特三個分頁曾隨重構移除，人員派工與 WBS 檢視已依新的扁平任務模型重做完成，僅剩甘特分頁待補；若後續要重做，需另行設計，不可沿用舊 `wbs_nodes` 邏輯。專案列表頁與詳情頁已補齊建立專案、封存/解封存、成員管理（新增/移除成員、換負責人）的操作介面，WBS 檢視分頁新增「匯出 Excel」按鈕，四項功能後端 API 原本就已存在，此次只是補上前端串接。依任務路由表，新功能一律先走 `superpowers:brainstorming`。
 
+**UI/UX 重構（側邊欄導覽、視覺 token 化、WBS 新增大項、首頁儀表板）已完成**，真相來源是 `docs/superpowers/plans/2026-08-19-ui-nav-redesign-and-dashboard.md`。看板/人員派工/WBS 檢視的分頁導覽從內容區頂端按鈕改到側邊欄第二層（Vue 3 `<Teleport>`，全專案首次使用）；全站色彩字體改用 `app.css` 的 `:root` token；WBS 檢視新增「+ 新增大項」，與看板共用抽出的 `categoryPresetMixin`；`/home` 從占位歡迎頁改成依角色分三層的儀表板（`DashboardService` 依角色分流 PERSONAL/SECTION/ORG）。細節見「前端模式」章節。
+
 ## 專案定位
 
 綜合性任務管理器：以扁平任務模型為核心的看板式任務派工系統。整合本機兩個舊專案的已驗證程式碼與模式（全新 repo，不以任一者為基底）：
@@ -78,9 +80,17 @@ mvn test -Dtest=ClassName#methodName
 
 WBS 檢視分頁工具列新增「匯出 Excel」按鈕，以 `fetch` + blob 下載 `GET /api/projects/{id}/export.xlsx`（非 `window.location.href` 直接導航——401/403 時後端沒有 `Content-Disposition`，整頁會被導去顯示 `ApiResponse` 的原始 JSON 錯誤內容，摧毀當下分頁狀態；也不能沿用 `api()` 骨架，它固定呼叫 `res.json()` 對二進位內容會解析失敗）：非 200 時解析 JSON 錯誤訊息跳 toast、不觸發下載，200 時才從 `Content-Disposition` 的 `filename*=UTF-8''...` 取回實際檔名建立 blob 連結觸發下載。後端 `TaskExportService` 用 Apache POI 產生欄位固定為「大類／子類／任務標題／指派人／狀態／優先度／起始日／到期日」的工作表，列的排序對齊 WBS 樹狀顯示順序（未歸類 → 各大類 → 各大類底下的子類），權限比照 `canRead`（唯讀角色與封存專案皆可匯出）。
 
+全站視覺改為白色簡約風格：`app.css` 開頭新增 `:root` token 區塊（`--paper`／`--surface`／`--ink`／`--ink-muted`／`--line`／`--signal`／`--danger` 七個色彩、`--font-ui`／`--font-mono` 兩個字體堆疊），取代原本散落各規則的硬編色碼；卡片浮起效果一律用 `border: 1px solid var(--line)` 表達，不用 `box-shadow`。唯一例外：`.task-card`／`.wbs-task-row` 的 `priority-HIGH/MEDIUM/LOW` 左側色條維持原本的紅/橘/綠語意色（`#d63031`/`#e17055`/`#00b894`），不 token 化——優先度需要一眼辨識，語意色比視覺統一更重要。
+
+側邊欄改用含專案子導覽的樹狀結構：`fragments/sidebar.html` 固定的「首頁／專案列表」連結後面多一個空的 `<div id="project-nav-slot">`，只有在專案詳情頁才會被填入內容——`project-detail.js` 的 root app 用 `<Teleport to="#project-nav-slot">` 把「看板／人員派工／WBS 檢視」三個子項渲染進這個插槽，取代原本內容區頂端的分頁按鈕，`activeTab` 資料與 `v-if`/`v-else-if` 切換邏輯完全不變，只是換了渲染位置。專案名稱透過 `ProjectController.detail()` 新增的 `projectName` model 屬性傳入。
+
+WBS 檢視新增「+ 新增大項」按鈕（樹狀結構最下方，所有大類節點之後）：把 `KanbanView` 原本內嵌的 preset picker 邏輯（`stagePresets`／`categoryPresets`／`presetPicker`／`loadCategoryPresets`／`openPresetPicker`／`closePresetPicker`／`createCategoryFromPreset`）抽成共用 `categoryPresetMixin`，`KanbanView`／`WbsView` 都引入；`WbsView` 因此新增 `sectionId` prop（mixin 呼叫選單端點需要）。WBS 檢視仍**不做**「新增子類別」「改名」「刪除」「排序」，這些維持只在看板「分類管理」面板操作——共用的是邏輯，不是 UI 入口。
+
+首頁（`/home`）從單純的歡迎詞改為依角色分三層的儀表板：新端點 `GET /api/users/me/dashboard`（掛在既有 `UserController`）呼叫 `DashboardService.getDashboard(User)`，依 `user.getRole()` 的 switch 分流三種視角——`PROJECT_LEADER`／`PROJECT_MEMBER` 走 `buildPersonalView`（我是成員的進行中專案＋指派給我的任務，重用 `ProjectRepository.findByMemberUserIdAndArchived`＋新增的 `TaskRepository.findActiveByAssigneeId`）；`SECTION_CHIEF` 走 `buildSectionView`（本科所有未封存專案總覽，不限自己是否為成員，重用 `findBySectionIdAndArchived`）；`DIRECTOR` 走 `buildOrgView`（跨科總覽，依 `Project::getSection` 分組聚合，因 `Department` 未覆寫 `equals`/`hashCode`、lazy proxy 每次請求是新實例，分組後**務必**依 `sectionId` 排序，否則科別清單每次請求順序不同）。`DashboardDto.Response` 用靜態工廠方法（`personal`/`section`/`org`）讓三種視角互斥的欄位維持 null，前端 `home.js` 依回應的 `viewType` 欄位切換渲染三種畫面（`PERSONAL` 顯示專案卡片＋任務列；`SECTION` 顯示可點擊導向專案詳情頁的科內彙總列；`ORG` 顯示不可點擊的跨科彙總列）。這是繼 `project-list.js` 之後第二個純前端 API 拉資料、無 `th:data-*` 掛載參數的頁面。
+
 ## 測試重點
 
-權限矩陣（4 角色 × 讀／寫／封存，套用到 `tasks`／`task_categories` 的 CRUD）、任務可獨立存在（`category_id = NULL` 建立/查詢/指派/看板拖曳皆正常）、兩層深度上限（`task_categories` 第三層應被拒絕）、指派人須為專案成員／移除成員解除指派、看板 `move` 端點的欄內與跨欄重新編號、`task_category_presets` 科別隔離、IDOR（`task`／`task_category` 的 `project_id` 與 URL 路徑不一致應拒絕）。
+權限矩陣（4 角色 × 讀／寫／封存，套用到 `tasks`／`task_categories` 的 CRUD）、任務可獨立存在（`category_id = NULL` 建立/查詢/指派/看板拖曳皆正常）、兩層深度上限（`task_categories` 第三層應被拒絕）、指派人須為專案成員／移除成員解除指派、看板 `move` 端點的欄內與跨欄重新編號、`task_category_presets` 科別隔離、IDOR（`task`／`task_category` 的 `project_id` 與 URL 路徑不一致應拒絕）、首頁儀表板依角色分流正確（`PROJECT_LEADER`/`PROJECT_MEMBER`→`PERSONAL`、`SECTION_CHIEF`→`SECTION`、`DIRECTOR`→`ORG`，`DashboardServiceTest`）。
 
 ## 驗證與完成定義（宣稱完成前必須全數通過）
 
