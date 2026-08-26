@@ -292,16 +292,44 @@
         this.draggingCategoryId = category.id;
         ev.dataTransfer.effectAllowed = 'move';
       },
-      // 只在同一層內重新排序：跨層（parentCategoryId 不同）一律忽略，不送任何請求
+      // 大項（parentCategoryId === null）只能跟其他大項換順序，不接受重新掛父節點；
+      // 子類別放到「別的大項標題列」或「別的大項底下的子類別」都算重新掛父節點，
+      // 放到「自己目前所在大項的標題列」是沒有動作的 no-op（不是同層排序，targetCategory
+      // 是大項本身、不在任何 siblings 清單裡，不能走 reorderSiblings，否則
+      // findIndex 找不到會回傳 -1，Array.splice(-1, ...) 不是「不做事」而是插到倒數第二個位置，
+      // 會產生不該發生的排序副作用）
       async onCategoryDrop(targetCategory) {
         const draggingId = this.draggingCategoryId;
         this.draggingCategoryId = null;
         if (draggingId == null || draggingId === targetCategory.id) return;
         const dragging = this.categories.find(c => c.id === draggingId);
-        if (!dragging || dragging.parentCategoryId !== targetCategory.parentCategoryId) return;
+        if (!dragging) return;
 
+        if (dragging.parentCategoryId === null) {
+          // 大項只能跟大項換順序，行為與改動前完全相同
+          if (targetCategory.parentCategoryId !== null) return;
+          await this.reorderSiblings(dragging, targetCategory, null);
+          return;
+        }
+
+        if (targetCategory.parentCategoryId === null) {
+          // 目標是大項的標題列本身
+          if (targetCategory.id === dragging.parentCategoryId) return; // 放回自己目前所在的大項，no-op
+          await this.reparentSubCategory(dragging, targetCategory.id, null);
+          return;
+        }
+
+        // 目標是子類別
+        if (targetCategory.parentCategoryId === dragging.parentCategoryId) {
+          await this.reorderSiblings(dragging, targetCategory, dragging.parentCategoryId);
+        } else {
+          await this.reparentSubCategory(dragging, targetCategory.parentCategoryId, targetCategory);
+        }
+      },
+      // 同一個父節點底下重新排序：原本 onCategoryDrop 的邏輯，抽成獨立方法讓兩條路徑共用
+      async reorderSiblings(dragging, targetCategory, parentId) {
         const siblings = this.categories
-          .filter(c => c.parentCategoryId === dragging.parentCategoryId)
+          .filter(c => c.parentCategoryId === parentId)
           .sort((a, b) => a.sortOrder - b.sortOrder);
         const fromIdx = siblings.findIndex(c => c.id === dragging.id);
         const toIdx = siblings.findIndex(c => c.id === targetCategory.id);
@@ -324,6 +352,51 @@
         ));
         if (results.some(r => !r.success)) {
           this.showToast('排序失敗，已重新載入');
+          await this.loadAll();
+        }
+      },
+      // 子類別換掛到別的大項：targetSibling 是 null 就補到新大項底下的最後面
+      // （放的是標題列本身），是一個子類別物件就插入到那個位置（放的是某個子類別列）——
+      // 新舊大項底下的子類別都要重新編號 sortOrder
+      async reparentSubCategory(dragging, targetStageId, targetSibling) {
+        const oldParentId = dragging.parentCategoryId;
+        const newSiblings = this.categories
+          .filter(c => c.parentCategoryId === targetStageId && c.id !== dragging.id)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        const insertAt = targetSibling
+          ? Math.max(0, newSiblings.findIndex(c => c.id === targetSibling.id))
+          : newSiblings.length;
+        newSiblings.splice(insertAt, 0, dragging);
+
+        dragging.parentCategoryId = targetStageId;
+        const changed = [dragging];
+        newSiblings.forEach((c, i) => {
+          if (c.sortOrder !== i) {
+            c.sortOrder = i;
+            if (c !== dragging) changed.push(c);
+          }
+        });
+
+        const oldSiblings = this.categories
+          .filter(c => c.parentCategoryId === oldParentId && c.id !== dragging.id)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        oldSiblings.forEach((c, i) => {
+          if (c.sortOrder !== i) {
+            c.sortOrder = i;
+            changed.push(c);
+          }
+        });
+
+        const results = await Promise.all(changed.map(c => {
+          const body = c === dragging
+            ? { parentCategoryId: targetStageId, sortOrder: c.sortOrder }
+            : { sortOrder: c.sortOrder };
+          return api(`/api/projects/${this.projectId}/task-categories/${c.id}`, {
+            method: 'PUT', body: JSON.stringify(body),
+          });
+        }));
+        if (results.some(r => !r.success)) {
+          this.showToast('重新掛父節點失敗，已重新載入');
           await this.loadAll();
         }
       },
