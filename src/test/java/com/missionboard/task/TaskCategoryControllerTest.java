@@ -44,6 +44,8 @@ class TaskCategoryControllerTest {
     @Autowired
     private TaskCategoryPresetRepository taskCategoryPresetRepository;
     @Autowired
+    private TaskCategoryService taskCategoryService;
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     private Project project;
@@ -131,5 +133,23 @@ class TaskCategoryControllerTest {
                 .contentType("application/json")
                 .content("{\"parentCategoryId\":null,\"presetId\":" + stagePreset.getId() + "}"))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void reparentSubCategoryViaPutEndpoint() throws Exception {
+        TaskCategory stageA = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory stageB = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory sub = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(stageA.getId(), null, "子類別", null));
+
+        Cookie session = loginAs("leaderA");
+        mockMvc.perform(put("/api/projects/{id}/task-categories/{catId}", project.getId(), sub.getId())
+                .cookie(session).with(csrf())
+                .contentType("application/json")
+                .content("{\"parentCategoryId\":" + stageB.getId() + "}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.parentCategoryId").value(stageB.getId()));
     }
 }

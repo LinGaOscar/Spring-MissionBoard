@@ -5,7 +5,7 @@ public class TaskCategoryDto {
     public record CreateRequest(Long parentCategoryId, Long presetId, String name, Integer sortOrder) {
     }
 
-    public record UpdateRequest(String name, Integer sortOrder) {
+    public record UpdateRequest(String name, Integer sortOrder, Long parentCategoryId) {
     }
 
     public record Response(Long id, Long parentCategoryId, String name, int sortOrder) {

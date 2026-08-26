@@ -62,11 +62,23 @@ public class TaskCategoryService {
         return taskCategoryRepository.save(category);
     }
 
+    // 改父節點：只有子類別能改（大項的 parentCategory 永遠是 null，不接受這個操作），
+    // 新的父節點必須是大項（不能把子類別掛到另一個子類別底下，維持兩層上限）
     @Transactional
     public TaskCategory update(Long projectId, Long categoryId, TaskCategoryDto.UpdateRequest req) {
         TaskCategory category = getCategoryInProject(projectId, categoryId);
         if (req.name() != null) category.setName(req.name());
         if (req.sortOrder() != null) category.setSortOrder(req.sortOrder());
+        if (req.parentCategoryId() != null) {
+            if (category.getParentCategory() == null) {
+                throw new IllegalArgumentException("大項不能改變父節點");
+            }
+            TaskCategory newParent = getCategoryInProject(projectId, req.parentCategoryId());
+            if (newParent.getParentCategory() != null) {
+                throw new IllegalArgumentException("新的父節點必須是大項");
+            }
+            category.setParentCategory(newParent);
+        }
         return taskCategoryRepository.save(category);
     }
 

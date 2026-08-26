@@ -126,9 +126,66 @@ class TaskCategoryServiceTest {
         TaskCategory category = taskCategoryService.create(project.getId(),
             new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
         TaskCategory updated = taskCategoryService.update(project.getId(), category.getId(),
-            new TaskCategoryDto.UpdateRequest("改名後階段", 5));
+            new TaskCategoryDto.UpdateRequest("改名後階段", 5, null));
         assertThat(updated.getName()).isEqualTo("改名後階段");
         assertThat(updated.getSortOrder()).isEqualTo(5);
+    }
+
+    @Test
+    void reparentsSubCategoryToAnotherStage() {
+        TaskCategory stageA = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory stageB = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory sub = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(stageA.getId(), categoryPreset.getId(), null, null));
+
+        TaskCategory moved = taskCategoryService.update(project.getId(), sub.getId(),
+            new TaskCategoryDto.UpdateRequest(null, 0, stageB.getId()));
+
+        assertThat(moved.getParentCategory().getId()).isEqualTo(stageB.getId());
+    }
+
+    @Test
+    void rejectsReparentingAStageItself() {
+        TaskCategory stageA = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory stageB = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+
+        assertThatThrownBy(() -> taskCategoryService.update(project.getId(), stageA.getId(),
+                new TaskCategoryDto.UpdateRequest(null, null, stageB.getId())))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsReparentingToASubCategory() {
+        TaskCategory stageA = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory subA = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(stageA.getId(), categoryPreset.getId(), null, null));
+        TaskCategory stageB = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory subB = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(stageB.getId(), categoryPreset.getId(), null, null));
+
+        assertThatThrownBy(() -> taskCategoryService.update(project.getId(), subA.getId(),
+                new TaskCategoryDto.UpdateRequest(null, null, subB.getId())))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsReparentingToStageFromAnotherProject() {
+        TaskCategory stageA = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+        TaskCategory subA = taskCategoryService.create(project.getId(),
+            new TaskCategoryDto.CreateRequest(stageA.getId(), categoryPreset.getId(), null, null));
+        TaskCategory foreignStage = taskCategoryService.create(otherProject.getId(),
+            new TaskCategoryDto.CreateRequest(null, stagePreset.getId(), null, null));
+
+        assertThatThrownBy(() -> taskCategoryService.update(project.getId(), subA.getId(),
+                new TaskCategoryDto.UpdateRequest(null, null, foreignStage.getId())))
+            .isInstanceOf(SecurityException.class);
     }
 
     @Test
