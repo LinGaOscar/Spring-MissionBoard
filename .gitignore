@@ -17,3 +17,6 @@ target/
 
 # harness 本機控制檔（push-approved、health-check-rounds 等），純本機狀態不進版控
 .claude/
+
+# 各功能的 spec 與 plan（brainstorming／writing-plans 產物），保留在本機不進版控
+docs/superpowers/

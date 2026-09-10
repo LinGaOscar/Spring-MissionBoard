@@ -13,6 +13,16 @@ python3 sequencer.py ../../.superpowers/intro-video/raw ../../.superpowers/intro
 
 測試：`python3 -m unittest discover -s tests -t .`
 
+## `docs/screenshot/`
+
+`docs/screenshot/` 是這 25 張擷取幀的**手動副本**，已納入版控供文件引用；工作幀本身在 gitignored 的 `.superpowers/intro-video/raw/`。
+
+兩者不會自動同步——**重跑 `capture.py` 之後要記得手動更新**，否則版控裡的截圖會停留在舊版 UI：
+
+```bash
+cp .superpowers/intro-video/raw/*.png docs/screenshot/
+```
+
 ## 檔案職責
 
 | 檔案 | 職責 |

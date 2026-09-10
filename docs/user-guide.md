@@ -98,4 +98,4 @@
 ## 相關文件
 
 - 開發環境建置與常用指令：[dev.md](dev.md)
-- 架構決策與設計脈絡：`docs/superpowers/specs/`
+- 架構決策與設計脈絡：專案根目錄的 `CLAUDE.md`（各功能的完整 spec 保留在原作者本機的 `docs/superpowers/specs/`，不進版控）

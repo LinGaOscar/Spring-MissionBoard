@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案定位與現況
 
-綜合性任務管理器：以**扁平任務模型**為核心的看板式任務派工系統。現行架構的真相來源是 `docs/superpowers/specs/2026-08-08-missionboard-task-oriented-rewrite-design.md`，其後每個功能各有一份 spec＋plan 放在 `docs/superpowers/specs/`、`docs/superpowers/plans/`（依日期命名），動手前先讀對應那份；本檔只摘錄關鍵決策與踩坑。
+綜合性任務管理器：以**扁平任務模型**為核心的看板式任務派工系統。
+
+每個功能各有一份 spec＋plan（依日期命名）放在 `docs/superpowers/specs/`、`docs/superpowers/plans/`，但**這個目錄不進版控、只存在於原作者本機**——clone 下來看不到，本檔因此是版控中唯一的架構真相來源。若本機有那些設計文件，動手前先讀對應那份（現行架構的源頭是 `2026-08-08-missionboard-task-oriented-rewrite-design.md`）。
 
 `tasks`／`task_categories`／`task_category_presets` 已取代舊的 `wbs_nodes`／`wbs_presets`，`wbs` 套件與相關 DDL 已移除。專案詳情頁三分頁（看板／人員派工／WBS 檢視）皆已依扁平任務模型完成；舊架構的甘特分頁未重做，若要補需另行設計，不可沿用舊 `wbs_nodes` 邏輯。
 
@@ -127,6 +129,7 @@ API 慣例：統一 `ApiResponse` 信封＋`GlobalExceptionHandler`；狀態變�
 - `README.md`、`docs/dev.md`：**`/sync-docs` 生成物**，不要手改，功能／行為變更完成後提醒使用者跑 `/sync-docs`
 - `docs/user-guide.md`：面向使用者的功能說明，手寫，UI 行為改變時要同步
 - `docs/missionboard-intro.mp4`＋`docs/demo-video-storyboard.md`：專案介紹短片與分鏡（產片 pipeline 在 `scripts/intro-video/`，重跑方式見該目錄 README；工作幀在 gitignored 的 `.superpowers/intro-video/`）
+- `docs/screenshot/`：25 張系統畫面截圖，是擷取幀的手動副本（**重跑 `capture.py` 後需手動同步**，指令見 pipeline README）
 
 ## 驗證與完成定義（宣稱完成前必須全數通過）
 
