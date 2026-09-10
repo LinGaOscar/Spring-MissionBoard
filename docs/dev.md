@@ -4,7 +4,7 @@
 
 ## 環境需求
 
-- Java 21
+- Java 21（`pom.xml` 的 `java.version`）
 - Maven（本機安裝，專案未使用 `mvnw` wrapper）
 - Docker（跑 PostgreSQL 16）
 
@@ -33,13 +33,18 @@ mvn spring-boot:run
 
 ## 資料庫
 
-- 服務：`docker-compose.yml` 中的 `db`（`postgres:16`），對外 port `5432`
+- 服務：`docker-compose.yml` 中的 `db`（`postgres:16`），對外 port `5432`，資料庫與使用者皆為 `missionboard`
 - 初始化：`docker compose up -d` 首次啟動時自動執行 `sql/01_ddl.sql`（schema）與 `sql/02_test_data.sql`（測試帳號＋種子資料）
 - 重置（調整過 `sql/*.sql` 後必做）：
   ```bash
   docker compose down -v && docker compose up -d
   ```
 - Schema 為手寫 DDL，`ddl-auto: none`，不使用 Flyway/Liquibase
+- `SPRING_SESSION*` 表由 `spring.session.jdbc.initialize-schema: always` 於啟動時自動建立，不需手寫 DDL
+- 進容器查資料庫（角色 `postgres` 不存在，必須帶環境變數）：
+  ```bash
+  docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1"'
+  ```
 - 測試帳號（密碼皆為 `password123`，來源：`sql/02_test_data.sql`）：
 
   | 帳號 | 顯示名稱 | 角色 | 所屬科別 |
@@ -61,3 +66,11 @@ mvn spring-boot:run
 | `mvn test -Dtest=ClassName#methodName` | 執行單一測試方法 |
 | `docker compose up -d` | 啟動 PostgreSQL |
 | `docker compose down -v && docker compose up -d` | 重置資料庫（清空 volume 後重新初始化） |
+
+## 開發輔助腳本
+
+`scripts/intro-video/` 是專案介紹短片的產片 pipeline（Python 3 + Pillow + Playwright + ffmpeg），與應用程式本身無關，只在需要重製 `docs/missionboard-intro.mp4` 時使用。重跑方式與注意事項見該目錄的 `README.md`。
+
+```bash
+cd scripts/intro-video && python3 -m unittest discover -s tests -t .   # pipeline 自身的測試
+```
