@@ -126,7 +126,7 @@ API 慣例：統一 `ApiResponse` 信封＋`GlobalExceptionHandler`；狀態變�
 
 - `README.md`、`docs/dev.md`：**`/sync-docs` 生成物**，不要手改，功能／行為變更完成後提醒使用者跑 `/sync-docs`
 - `docs/user-guide.md`：面向使用者的功能說明，手寫，UI 行為改變時要同步
-- `docs/missionboard-demo.mp4`、`docs/missionboard-intro.mp4`＋`docs/demo-video-storyboard.md`：展示短片與分鏡（製作方式：chrome-devtools CDP 逐幀截圖→PIL 字幕→ffmpeg 30fps 圖片序列組片；原始幀在 gitignored 的 `.superpowers/`）
+- `docs/missionboard-intro.mp4`＋`docs/demo-video-storyboard.md`：專案介紹短片與分鏡（產片 pipeline 在 `scripts/intro-video/`，重跑方式見該目錄 README；工作幀在 gitignored 的 `.superpowers/intro-video/`）
 
 ## 驗證與完成定義（宣稱完成前必須全數通過）
 
