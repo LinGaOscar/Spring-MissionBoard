@@ -81,6 +81,19 @@
             <artifactId>poi-ooxml</artifactId>
             <version>5.3.0</version>
         </dependency>
+        <!--
+          OpenAPI 規格與 Swagger UI。版本釘 2.7.0 不可隨手升：實測 2.8.x 在本專案的
+          Spring Boot 3.4.0（Spring Framework 6.2.0）會在啟動時炸
+          PatternParseException: No more pattern data allowed after {*...}，
+          整個 ApplicationContext 起不來、全部 @SpringBootTest 連帶失敗。
+          要升 2.8.x 必須先把 Spring Boot 升到 3.4.1 以上（Spring Framework 6.2.1+；
+          此條依官方相容矩陣推得、未實測，實測到的是 2.8.17 在 3.4.0 會炸）。
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.7.0</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

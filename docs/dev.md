@@ -54,7 +54,18 @@ mvn spring-boot:run
   | `leader` | 專案負責人 | `PROJECT_LEADER` | 系統科 |
   | `member` | 專案成員 | `PROJECT_MEMBER` | 系統科 |
   | `member2` | 專案成員二 | `PROJECT_MEMBER` | 網路科（供跨科隔離測試） |
-- 測試套件使用 H2（PostgreSQL 相容模式）＋ `application-test.yml`，不需要 Docker
+- 測試套件使用 H2（PostgreSQL 相容模式）＋ `src/test/resources/application-test.yml`，不需要 Docker
+
+## API 文件
+
+應用啟動後可查閱 OpenAPI 規格（`springdoc-openapi` 2.7.0）：
+
+| 路徑 | 內容 |
+|---|---|
+| http://localhost:8080/swagger-ui/index.html | Swagger UI 互動式介面 |
+| http://localhost:8080/v3/api-docs | OpenAPI 3 JSON 規格 |
+
+兩者都需要先登入——未登入存取會被導向 `/login`。
 
 ## 常用指令
 

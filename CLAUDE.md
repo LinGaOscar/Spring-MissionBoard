@@ -23,7 +23,18 @@ Java 21 + Spring Boot 3.4.0（Maven）、PostgreSQL 16（Docker）、Spring Secu
 
 - **v1 純 REST**，不做 WebSocket；service 層是唯一寫入口（v2 才在此掛 STOMP 廣播）
 - Schema 手寫於 `sql/01_ddl.sql` + `sql/02_test_data.sql`，`ddl-auto: none`，不用 Flyway/Liquibase
+- **正式與測試是兩套 schema 真相**：`src/test/resources/application-test.yml` 用 `ddl-auto: create-drop`，測試的表由 JPA entity 產生、完全不讀 `sql/*.sql`。改 DDL 必須同步改 entity（反之亦然），否則 `mvn test` 全綠也測不出落差；測試另關掉 Spring Session（`store-type: none`）
 - Spring Session 的 `SPRING_SESSION*` 表由 `spring.session.jdbc.initialize-schema: always` 啟動時自動建立，DDL 不需手寫
+- OpenAPI 規格 `GET /v3/api-docs`、Swagger UI `/swagger-ui/index.html`，兩者都**受登入保護**（`anyRequest().authenticated()` 即涵蓋，SecurityConfig 不需另加放行規則）；標題掛在 `MissionBoardApplication` 的 `@OpenAPIDefinition`，不另開 config 類別
+- **springdoc 版本釘 2.7.0，不可隨手升**：實測 2.8.x 在 Spring Boot 3.4.0（Spring Framework 6.2.0）啟動即炸 `PatternParseException: No more pattern data allowed after {*...}`，ApplicationContext 起不來、所有 `@SpringBootTest` 連帶失敗。要升 2.8.x 得先把 Spring Boot 升到 3.4.1 以上（Spring Framework 6.2.1+，依官方相容矩陣推得，未實測）
+
+## 與全域規範的刻意差異（`~/.claude/guides/`）
+
+以下三項與全域標準不同，都是**已審視過的決定**，不要「順手修正」：
+
+- **套件依功能垂直切分**（`auth`／`project`／`task`），非 `system-standard.md` 的 `controller/service/repository/dto/entity` 水平分層。新功能跟隨既有切法，不要另開 `controller/` 目錄。
+- **不採用 `frontend-design-standard.md` 的 `--bs-*` token**：本專案的 `--paper`／`--ink`／`--signal` 七色 token 早於該標準（2026-09-08 建立）且已貫穿整份 `app.css`，該標準定位是「新專案起手」，不回頭套用。
+- **`sql/02_test_data.sql` 有業務資料**（範例專案、成員、兩層分類、3 筆任務），與 `system-standard.md`「測試資料只建帳號與必要設定」不同。理由：這批資料是 `docs/screenshot/` 25 張截圖、介紹短片、`/health-check` 巡檢與跨科隔離手測的共同素材；而 `mvn test` 走 H2 `create-drop`、根本不讀這個檔，移除它對測試零幫助卻會讓所有視覺素材失效。
 
 ## 常用指令
 
@@ -47,10 +58,10 @@ mvn test -Dtest=ClassName#methodName          # 單一測試方法
 |---|---|
 | `auth` | `SecurityConfig`、`CustomUserDetailsService`、`AuthController`（`GET /login`、`GET /home`） |
 | `common` | `ApiResponse` 統一信封、`GlobalExceptionHandler`（皆自舊專案移植） |
-| `department` | 科別實體與 repository |
+| `department` | 科別實體與 repository。`departments` 是**部→科自參照樹**（`parent_id` NULL＝部、有值＝科）；`projects.section_id` 一律指「科」那一層，`users.department_id` 則**一般指科、但 DIRECTOR 掛在「部」層**（測試資料 `director` 的 `department_id = 1`＝資訊部）。科別隔離與 DIRECTOR 跨科聚合都建立在此 |
 | `user` | 使用者、角色；`UserController`（`/api/users/me`、`/api/users/me/dashboard`、`/api/users`） |
 | `project` | 專案、成員、**權限核心** `ProjectService.canRead/canWrite/canArchive`；`ProjectController` 同時提供頁面（`/projects`、`/projects/{id}`）與 REST（`/api/projects`、`/archive`、`/unarchive`、`/members`、`/owner`） |
-| `task` | 任務、分類、分類選單、儀表板、匯出：`TaskController`（`/api/projects/{projectId}/tasks`、`/status`、`/assignee`、`/move`、`/export.xlsx`）、`TaskCategoryController`（`/task-categories`）、`TaskCategoryPresetController`（`/api/task-category-presets`）、`DashboardService`、`TaskExportService` |
+| `task` | 任務、分類、分類選單、儀表板、匯出。共同前綴 `/api/projects/{projectId}`：`TaskController`（`/tasks`、`/tasks/{taskId}/status`、`/assignee`、`/move`，以及同層而非掛在 `/tasks` 下的 `/export.xlsx`）、`TaskCategoryController`（`/task-categories`）；`TaskCategoryPresetController` 則是全域的 `/api/task-category-presets`，**GET/POST/PUT/DELETE 四個端點都有，但前端只用 GET（帶 `type`＋`sectionId`）——全站沒有 preset 管理 UI，要增刪選單只能直接打 API 或改 DB**。另有 `DashboardService`、`TaskExportService` |
 
 表單登入：登入頁 `/login`、處理 `/auth/login`、成功導向 `/home`；`/api/**` 未登入回 401 JSON（自訂 `AuthenticationEntryPoint`），其餘路徑導向 `/login`；BCrypt。REST 有 CSRF，前端從 `<meta name="_csrf">`／`_csrf_header` 取 token 帶入 header。
 
@@ -67,7 +78,8 @@ API 慣例：統一 `ApiResponse` 信封＋`GlobalExceptionHandler`；狀態變�
 - `task_categories` 最多兩層（大類→子類），純粹用於歸類與篩選，**不可派工**、不持有 `assignee_id`／`status`／`priority`／起迄日——這些欄位只存在 `tasks`
 - 深度上限（禁止第三層）由 **service 層驗證**，DB 不設 CHECK；`TaskCategoryService.update()` 允許子類改掛別的大項（`UpdateRequest.parentCategoryId`），但新父節點須為同專案的大項，大項本身不可被重新掛
 - 建立分類 `TaskCategoryDto.CreateRequest` 的 `presetId`／`name` 擇一必填：從 `task_category_presets` 選單帶入時**存文字快照**，改選單不影響既有專案；選單有 `section_id` 科別隔離（NULL＝全域預設）
-- 刪除分類 `ON DELETE SET NULL`，其下任務落回未歸類
+- `task_category_presets.type` 只有 `STAGE`（對應大類）／`CATEGORY`（對應子類）兩值，前端 `stagePresets`／`categoryPresets` 就是同一端點帶不同 `type` 各取一次的結果
+- 刪除分類：`tasks.category_id` 是 `ON DELETE SET NULL`（任務落回未歸類）；但 `task_categories.parent_category_id` 是 `ON DELETE CASCADE`，**刪大類會連帶刪光其下所有子類**，那些子類底下的任務才一併落回未歸類
 
 ### 權限與安全（移植舊專案鐵則）
 
@@ -130,6 +142,7 @@ API 慣例：統一 `ApiResponse` 信封＋`GlobalExceptionHandler`；狀態變�
 - `docs/user-guide.md`：面向使用者的功能說明，手寫，UI 行為改變時要同步
 - `docs/missionboard-intro.mp4`＋`docs/demo-video-storyboard.md`：專案介紹短片與分鏡（產片 pipeline 在 `scripts/intro-video/`，重跑方式見該目錄 README；工作幀在 gitignored 的 `.superpowers/intro-video/`）
 - `docs/screenshot/`：25 張系統畫面截圖，是擷取幀的手動副本（**重跑 `capture.py` 後需手動同步**，指令見 pipeline README）
+- `docs/專案介紹.pptx`：專案介紹簡報（已入版控）；若要改，依 pptx 路由最後須用 Keynote 開啟→匯出回 pptx 收尾
 
 ## 驗證與完成定義（宣稱完成前必須全數通過）
 
